@@ -11,7 +11,8 @@
 
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Gavel, AlertCircle } from 'lucide-react';
+import { Gavel, AlertCircle, Signal, SignalLow } from 'lucide-react';
+import { useAuctionSocket } from '../hooks/useAuctionSocket';
 import type { Product, BidResult } from '@auction/shared';
 
 interface AuctionItemProps {
@@ -28,6 +29,14 @@ export const AuctionItem: React.FC<AuctionItemProps> = ({ itemId, userId }) => {
 
   // Hardcoded API URL for the demo. In production, this would come from an environment variable.
   const API_URL = 'http://localhost:3000/api';
+
+  // Initialize the WebSocket connection with the performance buffer.
+  const { isConnected } = useAuctionSocket(itemId, (event) => {
+    // This callback is called by the hook every 100ms (Flush Loop).
+    setProduct((prev) => prev ? { ...prev, current_price: event.new_price } : null);
+    setIsUpdating(true);
+    setTimeout(() => setIsUpdating(false), 1000);
+  });
 
   useEffect(() => {
     fetchInitialState();
@@ -90,7 +99,13 @@ export const AuctionItem: React.FC<AuctionItemProps> = ({ itemId, userId }) => {
         <p className="item-description">{product.description || 'Exclusive auction item.'}</p>
         
         <div className="price-section">
-          <span className="price-label">Current Highest Bid</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span className="price-label">Current Highest Bid</span>
+            <div className="status-badge" style={{ padding: '2px 8px', fontSize: '10px' }}>
+              {isConnected ? <Signal size={10} color="#22c55e" /> : <SignalLow size={10} color="#ef4444" />}
+              {isConnected ? 'LIVE' : 'SYNCING'}
+            </div>
+          </div>
           <div className={`current-price ${isUpdating ? 'flash-update' : ''}`}>
             <span className="currency">$</span>
             {product.current_price.toLocaleString()}
