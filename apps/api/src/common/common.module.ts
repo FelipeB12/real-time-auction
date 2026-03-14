@@ -12,17 +12,20 @@
  */
 
 import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
 import { CacheModule } from '@nestjs/cache-manager';
 import { IdempotencyService } from './idempotency.service';
+import { Outbox } from './entities/outbox.entity';
+import { OutboxWorker } from './outbox.worker';
 
 @Module({
   imports: [
+    // Registers the Outbox entity so the OutboxWorker can query it.
+    TypeOrmModule.forFeature([Outbox]),
     // CacheModule registers the in-memory (or Redis-backed via store) cache.
-    // TTL and Redis store are configured at the AppModule level.
-    // Here we use the default in-memory store so CommonModule is self-contained for testing.
     CacheModule.register(),
   ],
-  providers: [IdempotencyService],
+  providers: [IdempotencyService, OutboxWorker],
   exports: [IdempotencyService],
 })
 export class CommonModule {}
