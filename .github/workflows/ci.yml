@@ -1,0 +1,108 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test-and-load:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: admin
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: auction_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm install
+
+      # 1. Start Infrastructure (Docker Compose)
+      - name: Start Infrastructure
+        run: docker compose up -d
+
+      # 2. Linting (Ensures code standards are strictly followed)
+      - name: Run Lint
+        run: npm run lint -w api
+
+      # 3. Build Shared Package (Dependency for API)
+      - name: Build Shared Package
+        run: npm run build -w @auction/shared
+
+      # 4. Unit & Integration Tests (Ensures core logic and concurrency are stable)
+      - name: Run API Tests
+        run: npm run test -w api
+        env:
+          DATABASE_HOST: localhost
+          DATABASE_PORT: 5432
+          DATABASE_USER: admin
+          DATABASE_PASSWORD: password
+          DATABASE_NAME: auction_db
+          REDIS_HOST: localhost
+          REDIS_PORT: 6379
+
+      # 5. Phase 6 Load Testing Integration
+      - name: Build and Start API for Load Test
+        run: |
+          npm run build -w api
+          npm run start:prod -w api &
+        env:
+          DATABASE_HOST: localhost
+          DATABASE_PORT: 5432
+          DATABASE_USER: admin
+          DATABASE_PASSWORD: password
+          DATABASE_NAME: auction_db
+          REDIS_HOST: localhost
+          REDIS_PORT: 6379
+          PORT: 3000
+
+      - name: Wait for API to be ready
+        run: |
+          until curl -s http://localhost:3000/api/products > /dev/null; do
+            echo "Waiting for API..."
+            sleep 2
+          done
+
+      - name: Setup k6
+        uses: grafana/setup-k6-action@v1
+
+      - name: Run k6 Load Test (Bidding Burst)
+        run: k6 run load-tests/bidding-burst.js
+        env:
+          API_URL: http://localhost:3000/api
+          WS_URL: ws://localhost:3000/auction
+
+      - name: Shutdown Infrastructure
+        if: always()
+        run: docker compose down
