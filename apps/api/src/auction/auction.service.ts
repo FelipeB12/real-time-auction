@@ -3,7 +3,7 @@
  *
  * Handles domain logic specific to the live auction state, deliberately separated
  * from the ProductsService to maintain the Single Responsibility Principle.
- * While ProductsService manages CRUD lifecycle, AuctionService answers 
+ * While ProductsService manages CRUD lifecycle, AuctionService answers
  * the question: "What is happening RIGHT NOW in this auction?"
  */
 
@@ -44,7 +44,7 @@ export class AuctionService {
       where: { id: itemId },
     });
 
-    // Guard against a client requesting state for a product that was 
+    // Guard against a client requesting state for a product that was
     // deleted or never created. Return a 404 with a descriptive message.
     if (!product) {
       throw new NotFoundException(

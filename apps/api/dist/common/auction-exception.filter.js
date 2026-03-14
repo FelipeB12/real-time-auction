@@ -18,11 +18,14 @@ let AuctionExceptionFilter = class AuctionExceptionFilter {
         const exceptionResponse = exception.getResponse();
         const isObject = typeof exceptionResponse === 'object' && exceptionResponse !== null;
         const error_code = isObject && 'error_code' in exceptionResponse
-            ? exceptionResponse.error_code
+            ? exceptionResponse
+                .error_code
             : this.inferDefaultErrorCode(statusCode);
         const message = isObject && 'message' in exceptionResponse
-            ? exceptionResponse.message
-            : String(exceptionResponse);
+            ? String(exceptionResponse.message)
+            : typeof exceptionResponse === 'string'
+                ? exceptionResponse
+                : JSON.stringify(exceptionResponse);
         const body = {
             statusCode,
             error_code,

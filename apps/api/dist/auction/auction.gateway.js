@@ -30,12 +30,12 @@ let AuctionGateway = AuctionGateway_1 = class AuctionGateway {
     }
     afterInit() {
         this.logger.log('Auction WebSocket Gateway initialized.');
-        this.redisSubscriber.subscribe('auction:bid.accepted', (err, count) => {
+        void this.redisSubscriber.subscribe('auction:bid.accepted', (err, count) => {
             if (err) {
                 this.logger.error('Failed to subscribe to Redis Pub/Sub:', err.message);
             }
             else {
-                this.logger.log(`Subscribed to ${count} Redis channels. Listening for events...`);
+                this.logger.log(`Subscribed to ${String(count)} Redis channels. Listening for events...`);
             }
         });
         this.redisSubscriber.on('message', (channel, message) => {
@@ -51,7 +51,7 @@ let AuctionGateway = AuctionGateway_1 = class AuctionGateway {
             this.server.emit('bid_update', event);
         }
         catch (error) {
-            this.logger.error('Failed to parse or relay bid event:', error.message);
+            this.logger.error('Failed to parse or relay bid event:', error instanceof Error ? error.message : String(error));
         }
     }
     handleConnection(client) {

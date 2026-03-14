@@ -11,8 +11,8 @@ import { AuctionModule } from './auction/auction.module';
 import { BidsModule } from './bids/bids.module';
 
 /**
- * @fileoverview The root module of the NestJS application. It bootstraps 
- * the underlying frameworks and establishes the primary PostgreSQL connection 
+ * @fileoverview The root module of the NestJS application. It bootstraps
+ * the underlying frameworks and establishes the primary PostgreSQL connection
  * mapping the core application entities.
  */
 @Module({
@@ -26,7 +26,7 @@ import { BidsModule } from './bids/bids.module';
       password: process.env.DB_PASSWORD || 'password',
       database: process.env.DB_NAME || 'auction_db',
       entities: [Product, Bid, Outbox],
-      synchronize: true, 
+      synchronize: true,
     }),
     ProductsModule,
     AuctionModule,

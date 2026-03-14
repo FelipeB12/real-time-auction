@@ -49,8 +49,11 @@ describe('BidsService (atomic locking)', () => {
     release: jest.fn().mockResolvedValue(undefined),
     manager: {
       // findOne returns the mock product for known IDs, null otherwise
-      findOne: jest.fn((_entity: any, { where: { id } }: any) =>
-        id === 'product-uuid' ? Promise.resolve(mockProduct) : Promise.resolve(null),
+      findOne: jest.fn(
+        (_entity: unknown, { where: { id } }: { where: { id: string } }) =>
+          id === 'product-uuid'
+            ? Promise.resolve(mockProduct)
+            : Promise.resolve(null),
       ),
       // createQueryBuilder chains to ultimately call execute() returning our simulated `affected`
       createQueryBuilder: jest.fn().mockReturnValue({
@@ -60,7 +63,14 @@ describe('BidsService (atomic locking)', () => {
         andWhere: jest.fn().mockReturnThis(),
         execute: jest.fn().mockResolvedValue({ affected }),
       }),
-      create: jest.fn().mockImplementation((entity: any, dto: any) => ({ ...dto, entityName: entity.name })),
+      create: jest
+        .fn()
+        .mockImplementation(
+          (entity: { name: string }, dto: Record<string, unknown>) => ({
+            ...dto,
+            entityName: entity.name,
+          }),
+        ),
       save: jest.fn().mockResolvedValue({ id: 'saved-id' }),
     },
   });
@@ -111,7 +121,11 @@ describe('BidsService (atomic locking)', () => {
   it('should reject a stale bid when the atomic UPDATE affects 0 rows', async () => {
     service = await buildModule(0); // DB reports 0 rows updated — bid lost the race
     await expect(
-      service.placeBid({ item_id: 'product-uuid', user_id: 'loser', amount: 80 }),
+      service.placeBid({
+        item_id: 'product-uuid',
+        user_id: 'loser',
+        amount: 80,
+      }),
     ).rejects.toThrow(BadRequestException);
   });
 

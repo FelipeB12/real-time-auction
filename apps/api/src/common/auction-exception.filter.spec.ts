@@ -9,7 +9,11 @@
  * Uses a minimal mock of the NestJS ArgumentsHost to avoid running a full HTTP server.
  */
 
-import { ArgumentsHost, BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  ArgumentsHost,
+  BadRequestException,
+  NotFoundException,
+} from '@nestjs/common';
 import { AuctionExceptionFilter } from './auction-exception.filter';
 import { AuctionErrorCode } from './errors.types';
 
@@ -33,7 +37,7 @@ describe('AuctionExceptionFilter', () => {
         getResponse: () => mockResponse,
         getRequest: () => mockRequest,
       }),
-    } as unknown as ArgumentsHost);
+    }) as unknown as ArgumentsHost;
 
   beforeEach(() => {
     filter = new AuctionExceptionFilter();

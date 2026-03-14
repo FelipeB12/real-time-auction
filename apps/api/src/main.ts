@@ -17,8 +17,9 @@ async function bootstrap() {
   // Register the global exception filter.
   // All thrown HttpExceptions across the entire API will now produce a
   // consistent { statusCode, error_code, message, timestamp, path } shape.
+  app.setGlobalPrefix('api');
   app.useGlobalFilters(new AuctionExceptionFilter());
 
   await app.listen(process.env.PORT ?? 3000);
 }
-bootstrap();
+void bootstrap();

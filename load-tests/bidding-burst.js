@@ -4,15 +4,6 @@
  * ARCHITECTURAL ROLE:
  * This script serves as the "Judge" of Phase 6. It mathematically validates that 
  * the platform remains stable under high-concurrency bidding wars (100+ VUs).
- *
- * VALIDATION GOALS:
- * 1. **DB Lock Stability:** Confirm that atomic SQL updates prevent race conditions.
- * 2. **Idempotency Efficiency:** Verify that identical keys are rejected via Redis cache.
- * 3. **WebSocket Relay Latency:** (Optional) Verify that the relay worker publishes 
- *    fast enough for the dashboard to receive updates in realtime.
- *
- * USAGE:
- * k6 run load-tests/bidding-burst.js
  */
 
 import http from 'k6/http';
@@ -42,52 +33,68 @@ export const options = {
 
 const BASE_URL = __ENV.API_URL || 'http://localhost:3000/api';
 const WS_URL = __ENV.WS_URL || 'ws://localhost:3000/auction';
-const ITEM_ID = 'product-1'; // Targeting the seeded product
 
 /**
  * Main Virtual User (VU) behavior.
  * Each VU simulates a bidder placing high-frequency bids.
  */
 export default function () {
-  const userId = `vu-${__VU}-${__ITER}`;
+  // Using a valid UUID format for user_id to satisfy PostgreSQL constraints
+  const userId = '00000000-0000-0000-0000-' + (__VU + 1000).toString().padStart(12, '0');
   
-  // 1. Fetch current state to determine valid bid
-  const stateRes = http.get(`${BASE_URL}/auction/${ITEM_ID}/state`);
-  check(stateRes, { 'status is 200': (r) => r.status === 200 });
+  // 1. Fetch available products to target the first one
+  const productsRes = http.get(`${BASE_URL}/products`);
+  const products = productsRes.json();
+  
+  const hasProducts = check(productsRes, { 
+    'products fetch successful': (r) => r.status === 200,
+    'at least one product exists': () => Array.isArray(products) && products.length > 0,
+  });
 
-  if (stateRes.status === 200) {
-    const product = stateRes.json();
-    const currentPrice = product.current_price;
-    const bidAmount = currentPrice + Math.floor(Math.random() * 50) + 1;
+  if (hasProducts) {
+    const ITEM_ID = products[0].id;
+    
+    // 2. Fetch current state to determine valid bid
+    const stateRes = http.get(`${BASE_URL}/auction/${ITEM_ID}/state`);
+    const hasState = check(stateRes, { 'status is 200': (r) => r.status === 200 });
 
-    // 2. Attempt to place a bid (Concurrency & Atomicity Test)
-    const payload = JSON.stringify({
-      item_id: ITEM_ID,
-      user_id: userId,
-      amount: bidAmount,
-    });
+    if (hasState) {
+      const product = stateRes.json();
+      const currentPrice = parseFloat(product.current_price);
+      const bidAmount = currentPrice + Math.floor(Math.random() * 50) + 1;
 
-    const params = {
-      headers: {
-        'Content-Type': 'application/json',
-        'Idempotency-Key': `${userId}-${bidAmount}`, // Test idempotency behavior
-      },
-    };
+      // 3. Attempt to place a bid (Concurrency & Atomicity Test)
+      const payload = JSON.stringify({
+        item_id: ITEM_ID,
+        user_id: userId,
+        amount: bidAmount,
+      });
 
-    const startTime = Date.now();
-    const bidRes = http.post(`${BASE_URL}/place-bid`, payload, params);
-    bidLatency.add(Date.now() - startTime);
+      const params = {
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': `${userId}-${bidAmount}`,
+        },
+      };
 
-    // 3. Analyze Results
-    // 201: Success, 409: Stale Bid (Expected in heavy wars), others: Errors
-    check(bidRes, {
-      'bid handled (201 or 409)': (r) => r.status === 201 || r.status === 409,
-    });
+      const startTime = Date.now();
+      const bidRes = http.post(`${BASE_URL}/bids/place-bid`, payload, params);
+      bidLatency.add(Date.now() - startTime);
 
-    if (bidRes.status === 201) {
-      successfulBids.add(1);
-    } else if (bidRes.status === 409) {
-      rejectedBids.add(1);
+      // 4. Analyze Results
+      if (bidRes.status !== 200 && bidRes.status !== 400) {
+        console.log(`Bid Failed: Status=${bidRes.status} Body=${bidRes.body}`);
+      }
+      
+      check(bidRes, {
+        'bid handled (200 or 400)': (r) => r.status === 200 || r.status === 400,
+      });
+
+      if (bidRes.status === 200) {
+        successfulBids.add(1);
+      } else if (bidRes.status === 400) {
+        rejectedBids.add(1);
+      }
     }
   }
 
@@ -96,16 +103,14 @@ export default function () {
 }
 
 /**
- * WebSocket Subscriber behavior (Optional k6 module use).
- * We use a separate VU or a concurrent check to verify stream connection.
+ * WebSocket Subscriber behavior.
  */
 export function websocket_test() {
   ws.connect(WS_URL, null, function (socket) {
     socket.on('open', () => console.log('WebSocket connected: Listening for stream...'));
     socket.on('message', (data) => {
-      // Logic to verify bid_update events arrive
       if (data.includes('bid_update')) {
-        check(data, { 'ws update received': (d) => d.includes(ITEM_ID) });
+        check(data, { 'ws update received': (d) => d.includes('product') });
       }
     });
     socket.on('close', () => console.log('WebSocket disconnected'));

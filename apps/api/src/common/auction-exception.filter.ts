@@ -54,19 +54,23 @@ export class AuctionExceptionFilter implements ExceptionFilter {
     // The exception response can be either a string (simple message) or a structured object.
     // Services that throw enriched errors (with error_code) pass an object.
     const exceptionResponse = exception.getResponse();
-    const isObject = typeof exceptionResponse === 'object' && exceptionResponse !== null;
+    const isObject =
+      typeof exceptionResponse === 'object' && exceptionResponse !== null;
 
     // Extract the error_code if the service passed one, or fall back to a generic HTTP code
     const error_code: AuctionErrorCode =
-      isObject && 'error_code' in (exceptionResponse as object)
-        ? (exceptionResponse as any).error_code
+      isObject && 'error_code' in (exceptionResponse as Record<string, unknown>)
+        ? ((exceptionResponse as Record<string, unknown>)
+            .error_code as AuctionErrorCode)
         : this.inferDefaultErrorCode(statusCode);
 
     // Extract the human-readable message from the exception
     const message: string =
-      isObject && 'message' in (exceptionResponse as object)
-        ? (exceptionResponse as any).message
-        : String(exceptionResponse);
+      isObject && 'message' in (exceptionResponse as Record<string, unknown>)
+        ? String((exceptionResponse as Record<string, unknown>).message)
+        : typeof exceptionResponse === 'string'
+          ? exceptionResponse
+          : JSON.stringify(exceptionResponse);
 
     // Assemble the standardized error envelope
     const body: AuctionErrorResponse = {
@@ -89,9 +93,9 @@ export class AuctionExceptionFilter implements ExceptionFilter {
    */
   private inferDefaultErrorCode(statusCode: number): AuctionErrorCode {
     switch (statusCode) {
-      case HttpStatus.NOT_FOUND:
+      case HttpStatus.NOT_FOUND as number:
         return AuctionErrorCode.ITEM_NOT_FOUND;
-      case HttpStatus.BAD_REQUEST:
+      case HttpStatus.BAD_REQUEST as number:
       default:
         return AuctionErrorCode.STALE_BID;
     }

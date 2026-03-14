@@ -1,5 +1,5 @@
 import { OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect } from '@nestjs/websockets';
-import { Server } from 'socket.io';
+import { Server, Socket } from 'socket.io';
 export declare class AuctionGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
     server: Server;
     private readonly logger;
@@ -7,6 +7,6 @@ export declare class AuctionGateway implements OnGatewayInit, OnGatewayConnectio
     constructor();
     afterInit(): void;
     private handleBidAccepted;
-    handleConnection(client: any): void;
-    handleDisconnect(client: any): void;
+    handleConnection(client: Socket): void;
+    handleDisconnect(client: Socket): void;
 }

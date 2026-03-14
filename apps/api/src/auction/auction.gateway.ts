@@ -8,8 +8,8 @@
  * and pushes them to all connected clients via Socket.io.
  *
  * SCALABILITY:
- * By using Redis Pub/Sub as the backbone, we can scale the API to multiple 
- * instances. Every instance will receive the event from Redis and notify its 
+ * By using Redis Pub/Sub as the backbone, we can scale the API to multiple
+ * instances. Every instance will receive the event from Redis and notify its
  * own subset of connected users.
  */
 
@@ -21,7 +21,7 @@ import {
   OnGatewayDisconnect,
 } from '@nestjs/websockets';
 import { Logger } from '@nestjs/common';
-import { Server } from 'socket.io';
+import { Server, Socket } from 'socket.io';
 import Redis from 'ioredis';
 import { BidEvent } from '@auction/shared';
 
@@ -31,9 +31,11 @@ import { BidEvent } from '@auction/shared';
   },
   namespace: 'auction',
 })
-export class AuctionGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
+export class AuctionGateway
+  implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
+{
   @WebSocketServer() server: Server;
-  
+
   private readonly logger = new Logger(AuctionGateway.name);
   private readonly redisSubscriber: Redis;
 
@@ -53,13 +55,21 @@ export class AuctionGateway implements OnGatewayInit, OnGatewayConnection, OnGat
     this.logger.log('Auction WebSocket Gateway initialized.');
 
     // Subscribe to the bid acceptance channel.
-    this.redisSubscriber.subscribe('auction:bid.accepted', (err, count) => {
-      if (err) {
-        this.logger.error('Failed to subscribe to Redis Pub/Sub:', err.message);
-      } else {
-        this.logger.log(`Subscribed to ${count} Redis channels. Listening for events...`);
-      }
-    });
+    void this.redisSubscriber.subscribe(
+      'auction:bid.accepted',
+      (err, count) => {
+        if (err) {
+          this.logger.error(
+            'Failed to subscribe to Redis Pub/Sub:',
+            err.message,
+          );
+        } else {
+          this.logger.log(
+            `Subscribed to ${String(count)} Redis channels. Listening for events...`,
+          );
+        }
+      },
+    );
 
     // Handle incoming messages from Redis.
     this.redisSubscriber.on('message', (channel, message) => {
@@ -77,28 +87,33 @@ export class AuctionGateway implements OnGatewayInit, OnGatewayConnection, OnGat
    */
   private handleBidAccepted(message: string) {
     try {
-      const event: BidEvent = JSON.parse(message);
-      this.logger.verbose(`Relaying bid update for item ${event.item_id}: ${event.new_price}`);
-      
+      const event = JSON.parse(message) as BidEvent;
+      this.logger.verbose(
+        `Relaying bid update for item ${event.item_id}: ${event.new_price}`,
+      );
+
       // Emit the event to all connected clients.
       // Payload: item_id, new_price, bidder_id, timestamp.
       this.server.emit('bid_update', event);
     } catch (error) {
-      this.logger.error('Failed to parse or relay bid event:', error.message);
+      this.logger.error(
+        'Failed to parse or relay bid event:',
+        error instanceof Error ? error.message : String(error),
+      );
     }
   }
 
   /**
    * Lifecycle hook for new client connections.
    */
-  handleConnection(client: any) {
+  handleConnection(client: Socket) {
     this.logger.log(`Client connected: ${client.id}`);
   }
 
   /**
    * Lifecycle hook for client disconnections.
    */
-  handleDisconnect(client: any) {
+  handleDisconnect(client: Socket) {
     this.logger.log(`Client disconnected: ${client.id}`);
   }
 }

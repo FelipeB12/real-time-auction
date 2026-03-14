@@ -23,7 +23,6 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import type { Cache } from 'cache-manager';
-import { AuctionErrorCode } from './errors.types';
 import { BidResult } from '@auction/shared';
 
 /** Redis TTL in seconds. Must be long enough to cover any realistic retry window. */
@@ -67,6 +66,10 @@ export class IdempotencyService {
   async cacheResult(key: string, result: BidResult): Promise<void> {
     const redisKey = `${IDEMPOTENCY_PREFIX}${key}`;
     // Store with a TTL so Redis auto-evicts stale keys without manual cleanup
-    await this.cacheManager.set(redisKey, result, IDEMPOTENCY_TTL_SECONDS * 1000);
+    await this.cacheManager.set(
+      redisKey,
+      result,
+      IDEMPOTENCY_TTL_SECONDS * 1000,
+    );
   }
 }

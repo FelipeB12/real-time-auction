@@ -18,16 +18,16 @@ exports.ProductsModule = ProductsModule;
 exports.ProductsModule = ProductsModule = __decorate([
     (0, common_1.Module)({
         imports: [
-            typeorm_1.TypeOrmModule.forFeature([product_entity_1.Product])
+            typeorm_1.TypeOrmModule.forFeature([product_entity_1.Product]),
         ],
         controllers: [
-            products_controller_1.ProductsController
+            products_controller_1.ProductsController,
         ],
         providers: [
-            products_service_1.ProductsService
+            products_service_1.ProductsService,
         ],
         exports: [
-            products_service_1.ProductsService
+            products_service_1.ProductsService,
         ],
     })
 ], ProductsModule);

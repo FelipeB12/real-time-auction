@@ -20,7 +20,7 @@ describe('AuctionService', () => {
   const mockProduct: Partial<Product> = {
     id: 'item-uuid-123',
     name: 'Vintage Guitar',
-    current_price: 250.00,
+    current_price: 250.0,
     highest_bidder_id: 'user-uuid-456',
   };
 
@@ -64,7 +64,7 @@ describe('AuctionService', () => {
 
     expect(state.item_id).toBe('item-uuid-123');
     expect(state.name).toBe('Vintage Guitar');
-    expect(state.current_price).toBe(250.00);
+    expect(state.current_price).toBe(250.0);
     expect(state.highest_bidder_id).toBe('user-uuid-456');
     // The snapshot_at should be a valid ISO date string
     expect(new Date(state.snapshot_at).toISOString()).toBe(state.snapshot_at);

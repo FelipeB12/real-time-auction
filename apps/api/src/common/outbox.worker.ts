@@ -4,13 +4,13 @@
  * ARCHITECTURAL ROLE:
  * This worker implements the "Message Relay" half of the Transactional Outbox pattern.
  * It polls the `outbox` table for unprocessed events, publishes them to Redis Pub/Sub,
- * and marks them as processed—all within a controlled environment to ensure 
+ * and marks them as processed—all within a controlled environment to ensure
  * that no event is lost, even if the primary API process crashes.
  *
  * HIGH-FREQUENCY CONSIDERATIONS:
  * - **Polling Interval:** Runs every 1 second (configurable).
  * - **Batching:** Processes multiple events in a single tick to handle spikes.
- * - **Self-Correction:** If publishing to Redis fails, the event remains 
+ * - **Self-Correction:** If publishing to Redis fails, the event remains
  *   `processed = false` and will be retried in the next tick.
  */
 
@@ -63,7 +63,9 @@ export class OutboxWorker {
       return;
     }
 
-    this.logger.debug(`Found ${unprocessedEvents.length} unprocessed events. Relaying to Redis...`);
+    this.logger.debug(
+      `Found ${unprocessedEvents.length} unprocessed events. Relaying to Redis...`,
+    );
 
     for (const event of unprocessedEvents) {
       try {
@@ -78,9 +80,13 @@ export class OutboxWorker {
           processed_at: new Date(),
         });
 
-        this.logger.verbose(`Successfully relayed event ${event.id} to channel ${channel}`);
+        this.logger.verbose(
+          `Successfully relayed event ${event.id} to channel ${channel}`,
+        );
       } catch (error) {
-        this.logger.error(`Failed to relay event ${event.id}: ${error.message}`);
+        this.logger.error(
+          `Failed to relay event ${event.id}: ${error instanceof Error ? error.message : String(error)}`,
+        );
         // We do NOT mark it as processed, so it will be retried in the next tick.
       }
     }

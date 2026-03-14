@@ -1,6 +1,6 @@
 /**
  * @fileoverview Module encapsulating the Product domain layer.
- * 
+ *
  * Registers the TypeORM `Product` entity allowing `@InjectRepository` access
  * within the encapsulated services. Exports the ProductsService so other modules
  * (like Bids or WebSockets) can query products if required later.
@@ -15,19 +15,19 @@ import { Product } from './entities/product.entity';
 @Module({
   imports: [
     // Registers the database mapped table explicitly locally within this module.
-    TypeOrmModule.forFeature([Product])
+    TypeOrmModule.forFeature([Product]),
   ],
   controllers: [
     // Exposes the API REST endpoints
-    ProductsController
+    ProductsController,
   ],
   providers: [
     // Internal encapsulated logic provider
-    ProductsService
+    ProductsService,
   ],
   exports: [
     // Ensures other external modules have permission to inject the ProductsService
-    ProductsService
+    ProductsService,
   ],
 })
 export class ProductsModule {}

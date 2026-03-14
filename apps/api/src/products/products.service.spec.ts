@@ -1,6 +1,6 @@
 /**
  * @fileoverview Unit tests validating the core functionality of the ProductsService.
- * Uses Jest and NestJS's TestingModule to isolate the service and mock the 
+ * Uses Jest and NestJS's TestingModule to isolate the service and mock the
  * underlying TypeORM PostgreSQL repository for fast, deterministic testing.
  */
 
@@ -8,11 +8,9 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { ProductsService } from './products.service';
 import { Product } from './entities/product.entity';
-import { Repository } from 'typeorm';
 
 describe('ProductsService', () => {
   let service: ProductsService;
-  let repository: Repository<Product>;
 
   /**
    * Mock implementation of the TypeORM repository.
@@ -21,17 +19,30 @@ describe('ProductsService', () => {
    * the payload stitched with a fake UUID.
    */
   const mockProductRepository = {
-    create: jest.fn().mockImplementation(dto => dto),
-    save: jest.fn().mockImplementation(product => Promise.resolve({ id: 'uuid-1', ...product })),
+    create: jest.fn().mockImplementation((dto: Record<string, unknown>) => dto),
+    save: jest
+      .fn()
+      .mockImplementation((product: Record<string, unknown>) =>
+        Promise.resolve({ id: 'uuid-1', ...product }),
+      ),
     find: jest.fn().mockResolvedValue([{ id: 'uuid-1', name: 'Test Product' }]),
-    findOne: jest.fn().mockResolvedValue({ id: 'uuid-1', name: 'Test Product' }),
-    merge: jest.fn().mockImplementation((entity, dto) => ({ ...entity, ...dto })),
+    findOne: jest
+      .fn()
+      .mockResolvedValue({ id: 'uuid-1', name: 'Test Product' }),
+    merge: jest
+      .fn()
+      .mockImplementation(
+        (entity: Record<string, unknown>, dto: Record<string, unknown>) => ({
+          ...entity,
+          ...dto,
+        }),
+      ),
     remove: jest.fn().mockResolvedValue(undefined),
   };
 
   /**
-   * Runs before every individual `it` block. 
-   * Recompiles a fresh dependency injection module mapping the mock 
+   * Runs before every individual `it` block.
+   * Recompiles a fresh dependency injection module mapping the mock
    * repository to the actual ProductsService constructor.
    */
   beforeEach(async () => {
@@ -46,7 +57,6 @@ describe('ProductsService', () => {
     }).compile();
 
     service = module.get<ProductsService>(ProductsService);
-    repository = module.get<Repository<Product>>(getRepositoryToken(Product));
   });
 
   /**
@@ -74,6 +84,8 @@ describe('ProductsService', () => {
    * Validates that standard aggregation returns an array of structured entities.
    */
   it('should find all products', async () => {
-    expect(await service.findAll()).toEqual([{ id: 'uuid-1', name: 'Test Product' }]);
+    expect(await service.findAll()).toEqual([
+      { id: 'uuid-1', name: 'Test Product' },
+    ]);
   });
 });

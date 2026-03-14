@@ -2,11 +2,11 @@
  * @fileoverview TypeORM Entity for the Transactional Outbox pattern.
  *
  * ARCHITECTURAL PURPOSE:
- * In a high-frequency system, we must update the Database (ground truth) 
- * and notify the WebSockets (real-time stream). Doing both is a "dual-write" 
+ * In a high-frequency system, we must update the Database (ground truth)
+ * and notify the WebSockets (real-time stream). Doing both is a "dual-write"
  * problem. If we update the DB but Redis/WebSockets fail, the UI becomes stale.
  *
- * The Transactional Outbox solves this by saving the "Notification Event" into 
+ * The Transactional Outbox solves this by saving the "Notification Event" into
  * the SAME database transaction as the business logic.
  *
  * 1. Start Transaction.
@@ -14,12 +14,17 @@
  * 3. Save "BidPlaced" event to this Outbox table.
  * 4. Commit Transaction.
  *
- * Now, even if the server crashes exactly after the commit, the event is 
- * durable in the DB. A background worker (Step 2) will reliably pick it up 
+ * Now, even if the server crashes exactly after the commit, the event is
+ * durable in the DB. A background worker (Step 2) will reliably pick it up
  * and push it to Redis later.
  */
 
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn } from 'typeorm';
+import {
+  Entity,
+  Column,
+  PrimaryGeneratedColumn,
+  CreateDateColumn,
+} from 'typeorm';
 
 @Entity('outbox')
 export class Outbox {

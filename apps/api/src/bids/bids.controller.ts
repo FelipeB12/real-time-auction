@@ -71,12 +71,14 @@ export class BidsController {
     if (!idempotencyKey) {
       throw new BadRequestException({
         error_code: AuctionErrorCode.MISSING_IDEMPOTENCY_KEY,
-        message: 'Missing required header: Idempotency-Key. Provide a unique UUID for every bid request.',
+        message:
+          'Missing required header: Idempotency-Key. Provide a unique UUID for every bid request.',
       });
     }
 
     // — CHECK: Look up whether this key has been processed before in Redis.
-    const cachedResult = await this.idempotencyService.getCachedResult(idempotencyKey);
+    const cachedResult =
+      await this.idempotencyService.getCachedResult(idempotencyKey);
 
     if (cachedResult) {
       // Cache HIT — this is a retry. Return the original result without any DB interaction.

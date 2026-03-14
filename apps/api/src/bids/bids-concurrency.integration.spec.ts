@@ -70,7 +70,14 @@ describe('BidsService — Concurrent Bid Integration Tests', () => {
           execute: jest.fn().mockResolvedValue({ affected }),
         }),
         // Match the service.spec create/save mocks for consistency
-        create: jest.fn().mockImplementation((entity: any, dto: any) => ({ ...dto, entityName: entity.name })),
+        create: jest
+          .fn()
+          .mockImplementation(
+            (entity: { name: string }, dto: Record<string, unknown>) => ({
+              ...dto,
+              entityName: entity.name,
+            }),
+          ),
         save: jest.fn().mockResolvedValue({ id: 'saved-id' }),
       },
     };
@@ -122,8 +129,8 @@ describe('BidsService — Concurrent Bid Integration Tests', () => {
       ),
     );
 
-    const successes = results.filter(r => r.status === 'fulfilled');
-    const rejections = results.filter(r => r.status === 'rejected');
+    const successes = results.filter((r) => r.status === 'fulfilled');
+    const rejections = results.filter((r) => r.status === 'rejected');
 
     // Exactly ONE bid must succeed
     expect(successes).toHaveLength(1);
@@ -134,12 +141,15 @@ describe('BidsService — Concurrent Bid Integration Tests', () => {
     // Each rejection must be a BadRequestException — not a 500 server error.
     // This confirms the system handles the race gracefully, not catastrophically.
     for (const rejection of rejections) {
-      const failed = rejection as PromiseRejectedResult;
+      const failed = rejection;
       expect(failed.reason).toBeInstanceOf(BadRequestException);
     }
 
     // The winning bid must return the correct new price
-    const winner = successes[0] as PromiseFulfilledResult<any>;
+    const winner = successes[0] as PromiseFulfilledResult<{
+      success: boolean;
+      new_price: number;
+    }>;
     expect(winner.value.success).toBe(true);
     expect(winner.value.new_price).toBe(150);
   });

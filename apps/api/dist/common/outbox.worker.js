@@ -56,7 +56,7 @@ let OutboxWorker = OutboxWorker_1 = class OutboxWorker {
                 this.logger.verbose(`Successfully relayed event ${event.id} to channel ${channel}`);
             }
             catch (error) {
-                this.logger.error(`Failed to relay event ${event.id}: ${error.message}`);
+                this.logger.error(`Failed to relay event ${event.id}: ${error instanceof Error ? error.message : String(error)}`);
             }
         }
     }

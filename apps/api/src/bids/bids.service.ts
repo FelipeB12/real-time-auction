@@ -30,7 +30,11 @@
  * locks required. No additional infrastructure. Pure SQL atomicity.
  */
 
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { AuctionErrorCode } from '../common/errors.types';
@@ -152,7 +156,7 @@ export class BidsService {
       await queryRunner.manager.save(bid);
 
       // — Step 5: Save the event to the Transactional OUTBOX.
-      // This ensures that even if Redis or the WebSocket gateway is down, 
+      // This ensures that even if Redis or the WebSocket gateway is down,
       // the event is captured and will be published eventually.
       const bidEvent: BidEvent = {
         item_id,

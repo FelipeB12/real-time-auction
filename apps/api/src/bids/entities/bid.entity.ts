@@ -1,8 +1,13 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn } from 'typeorm';
+import {
+  Entity,
+  Column,
+  PrimaryGeneratedColumn,
+  CreateDateColumn,
+} from 'typeorm';
 
 /**
- * @fileoverview TypeORM Entity mapping user bids mapped to the `bids` 
- * database table. It acts as an append-only historical record of all 
+ * @fileoverview TypeORM Entity mapping user bids mapped to the `bids`
+ * database table. It acts as an append-only historical record of all
  * auction attempts.
  */
 

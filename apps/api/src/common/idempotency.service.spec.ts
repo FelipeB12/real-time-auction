@@ -23,7 +23,10 @@ describe('IdempotencyService', () => {
 
   const mockCacheManager = {
     get: jest.fn((key: string) => Promise.resolve(store.get(key))),
-    set: jest.fn((key: string, value: any) => { store.set(key, value); return Promise.resolve(); }),
+    set: jest.fn((key: string, value: any) => {
+      store.set(key, value);
+      return Promise.resolve();
+    }),
   };
 
   beforeEach(async () => {
@@ -46,7 +49,11 @@ describe('IdempotencyService', () => {
 
   /** After caching a result, looking it up returns the exact same object. */
   it('should return the cached BidResult after storing it (cache hit)', async () => {
-    const bidResult: BidResult = { success: true, message: 'Bid accepted.', new_price: 150 };
+    const bidResult: BidResult = {
+      success: true,
+      message: 'Bid accepted.',
+      new_price: 150,
+    };
 
     await service.cacheResult('my-idempotency-key', bidResult);
     const cached = await service.getCachedResult('my-idempotency-key');
@@ -56,7 +63,11 @@ describe('IdempotencyService', () => {
 
   /** Two different keys never cross-contaminate each other's cached data. */
   it('should not return a result for a different idempotency key', async () => {
-    const bidResult: BidResult = { success: true, message: 'Bid accepted.', new_price: 200 };
+    const bidResult: BidResult = {
+      success: true,
+      message: 'Bid accepted.',
+      new_price: 200,
+    };
 
     await service.cacheResult('key-A', bidResult);
     const resultForKeyB = await service.getCachedResult('key-B');

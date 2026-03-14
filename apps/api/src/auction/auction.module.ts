@@ -3,12 +3,12 @@
  *
  * This module is intentionally separate from the ProductsModule.
  * It imports the Product entity's TypeORM feature registration so the
- * AuctionService can query `current_price` directly without coupling itself 
+ * AuctionService can query `current_price` directly without coupling itself
  * to the Products domain service — keeping responsibilities distinct.
  *
  * Relates to other modules:
  *   - ProductsModule → Manages the lifecycle of auction items.
- *   - BidsModule (Phase 2) → Will import AuctionModule to update product price 
+ *   - BidsModule (Phase 2) → Will import AuctionModule to update product price
  *     atomically upon a winning bid.
  */
 

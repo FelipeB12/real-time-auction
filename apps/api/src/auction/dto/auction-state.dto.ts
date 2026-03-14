@@ -1,10 +1,10 @@
 /**
- * @fileoverview Data Transfer Object (DTO) defining the response shape for the 
+ * @fileoverview Data Transfer Object (DTO) defining the response shape for the
  * auction state catch-up endpoint: GET /auction/{id}/state.
- * 
+ *
  * This DTO is used when a client first loads the page or reconnects to the
  * WebSocket stream, providing a synchronous "what is the current state right now?"
- * answer before the real-time stream begins. This prevents the client from 
+ * answer before the real-time stream begins. This prevents the client from
  * displaying stale or empty state while awaiting the next WebSocket push.
  */
 
