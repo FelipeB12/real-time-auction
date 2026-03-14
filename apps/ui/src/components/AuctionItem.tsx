@@ -25,6 +25,7 @@ export const AuctionItem: React.FC<AuctionItemProps> = ({ itemId, userId }) => {
   const [bidAmount, setBidAmount] = useState<number>(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
 
   // Hardcoded API URL for the demo. In production, this would come from an environment variable.
@@ -79,9 +80,11 @@ export const AuctionItem: React.FC<AuctionItemProps> = ({ itemId, userId }) => {
       );
 
       if (response.data.success) {
+        setSuccessMessage('Bid placed successfully!');
+        setTimeout(() => setSuccessMessage(null), 3000);
         // Optimistic local update before WebSocket confirms it
         setIsUpdating(true);
-        setTimeout(() => setIsUpdating(false), 1000);
+        setTimeout(() => setIsUpdating(false), 800);
       }
     } catch (err: any) {
       console.error('Bid failed:', err.response?.data);
@@ -89,7 +92,15 @@ export const AuctionItem: React.FC<AuctionItemProps> = ({ itemId, userId }) => {
     }
   };
 
-  if (loading) return <div className="auction-card loading">Loading item...</div>;
+  if (loading) return (
+    <div className="auction-card shimmer" style={{ minHeight: '300px' }}>
+      <div className="card-content">
+        <div style={{ height: '24px', width: '60%', background: 'rgba(255,255,255,0.1)', borderRadius: '4px', marginBottom: '1rem' }}></div>
+        <div style={{ height: '16px', width: '90%', background: 'rgba(255,255,255,0.1)', borderRadius: '4px', marginBottom: '2rem' }}></div>
+        <div style={{ height: '40px', width: '40%', background: 'rgba(255,255,255,0.1)', borderRadius: '4px' }}></div>
+      </div>
+    </div>
+  );
   if (!product) return <div className="auction-card error">Item not found</div>;
 
   return (
@@ -133,6 +144,13 @@ export const AuctionItem: React.FC<AuctionItemProps> = ({ itemId, userId }) => {
           <div className="error-message">
             <AlertCircle size={14} />
             {error}
+          </div>
+        )}
+
+        {successMessage && (
+          <div className="success-badge">
+            <Signal size={14} />
+            {successMessage}
           </div>
         )}
       </div>
