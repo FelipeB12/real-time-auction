@@ -1,121 +1,55 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+/**
+ * @fileoverview Main Application entry point for the Auction UI.
+ * 
+ * This application demonstrates a high-frequency auction dashboard.
+ * It uses a shared layout and displays several auction items which 
+ * synchronize their state with the NestJS backend.
+ */
+
+import { useState } from 'react';
+import { Zap, ShieldCheck } from 'lucide-react';
+import { AuctionItem } from './components/AuctionItem';
+import './App.css';
 
 function App() {
-  const [count, setCount] = useState(0)
+  const [userId] = useState(() => `user_${Math.floor(Math.random() * 1000)}`);
+  
+  // Example item IDs. In a real app, these would be fetched from /api/products
+  const [demoItems] = useState([
+    'product-1', // Assuming these exist from Phase 1 seeding
+    'product-2'
+  ]);
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
+    <div className="app-container">
+      <header className="header">
+        <div className="logo">
+          <Zap fill="currentColor" size={24} />
+          SISU Auction
         </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
+        
+        <div className="status-badge">
+          <ShieldCheck size={16} color="#3b82f6" />
+          User ID: <span style={{ color: '#3b82f6', fontWeight: 600 }}>{userId}</span>
+          <div className="status-indicator connected"></div>
+          <span style={{ fontSize: '0.75rem', opacity: 0.8 }}>Connected to Sockets</span>
         </div>
-        <button
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+      </header>
 
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
+      <main>
+        <div className="auction-grid">
+          {demoItems.map(id => (
+            <AuctionItem key={id} itemId={id} userId={userId} />
+          ))}
         </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
+      </main>
 
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+      <footer style={{ marginTop: '4rem', padding: '2rem 0', borderTop: '1px solid var(--border-color)', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
+        <p>Built with NestJS + React + Redis + PostgreSQL</p>
+        <p style={{ marginTop: '0.5rem', opacity: 0.6 }}>High-Frequency Auction Platform (Bonus B Implementation)</p>
+      </footer>
+    </div>
+  );
 }
 
-export default App
+export default App;
