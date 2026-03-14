@@ -6,6 +6,7 @@ import { Product } from './products/entities/product.entity';
 import { Bid } from './bids/entities/bid.entity';
 import { ProductsModule } from './products/products.module';
 import { AuctionModule } from './auction/auction.module';
+import { BidsModule } from './bids/bids.module';
 
 /**
  * @fileoverview The root module of the NestJS application. It bootstraps 
@@ -26,6 +27,7 @@ import { AuctionModule } from './auction/auction.module';
     }),
     ProductsModule,
     AuctionModule,
+    BidsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
