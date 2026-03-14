@@ -1,0 +1,17 @@
+{
+  "name": "@auction/shared",
+  "version": "1.0.0",
+  "description": "Shared TypeScript types for the High-Frequency Auction Platform",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}
