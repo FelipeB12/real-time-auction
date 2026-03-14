@@ -27,6 +27,7 @@ import {
 import { BidsService } from './bids.service';
 import { IdempotencyService } from '../common/idempotency.service';
 import { PlaceBidDto } from './dto/place-bid.dto';
+import { AuctionErrorCode } from '../common/errors.types';
 import { BidResult } from '@auction/shared';
 
 @Controller('bids')
@@ -68,9 +69,10 @@ export class BidsController {
     // Guard: Require the Idempotency-Key header. Without it, we cannot deduplicate.
     // Clients that omit this header are breaking the contract for financial operations.
     if (!idempotencyKey) {
-      throw new BadRequestException(
-        'Missing required header: Idempotency-Key. Provide a unique UUID for every bid request.',
-      );
+      throw new BadRequestException({
+        error_code: AuctionErrorCode.MISSING_IDEMPOTENCY_KEY,
+        message: 'Missing required header: Idempotency-Key. Provide a unique UUID for every bid request.',
+      });
     }
 
     // — CHECK: Look up whether this key has been processed before in Redis.

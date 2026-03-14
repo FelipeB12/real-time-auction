@@ -33,6 +33,7 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
+import { AuctionErrorCode } from '../common/errors.types';
 import { Product } from '../products/entities/product.entity';
 import { Bid } from './entities/bid.entity';
 import { PlaceBidDto } from './dto/place-bid.dto';
@@ -104,9 +105,11 @@ export class BidsService {
         // Release resources before throwing — no commit or rollback needed
         // for a simple not-found check.
         await queryRunner.release();
-        throw new NotFoundException(
-          `Auction item "${item_id}" does not exist. Cannot place bid.`,
-        );
+        // Throw with a structured body so AuctionExceptionFilter emits the error_code
+        throw new NotFoundException({
+          error_code: AuctionErrorCode.ITEM_NOT_FOUND,
+          message: `Auction item "${item_id}" does not exist. Cannot place bid.`,
+        });
       }
 
       // — Step 3: THE CORE ATOMIC UPDATE.
@@ -133,9 +136,11 @@ export class BidsService {
       if (updateResult.affected === 0) {
         await queryRunner.rollbackTransaction();
         await queryRunner.release();
-        throw new BadRequestException(
-          `Bid of $${amount} was rejected. The current price has already moved to $${product.current_price} or higher.`,
-        );
+        // Throw with a structured body so AuctionExceptionFilter emits STALE_BID
+        throw new BadRequestException({
+          error_code: AuctionErrorCode.STALE_BID,
+          message: `Bid of $${amount} was rejected. The current price has already moved to $${product.current_price} or higher.`,
+        });
       }
 
       // — Step 4: Insert the immutable bid audit record IN THE SAME TRANSACTION.
