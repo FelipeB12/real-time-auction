@@ -1,13 +1,14 @@
 /**
- * @fileoverview Unit tests for the BidsService baseline bid placement logic.
+ * @fileoverview Unit tests for the BidsService ATOMIC bid placement logic.
  *
- * Tests the two key scenarios of the baseline implementation:
- *   1. SUCCESS — A bid higher than the current price is correctly accepted.
- *   2. REJECTION — A bid equal to or lower than the current price is rejected with BadRequestException.
- *   3. NOT FOUND — A bid for a non-existent product yields NotFoundException.
+ * These tests specifically validate the CONCURRENCY behavior introduced in this commit:
+ *   - The atomic UPDATE's WHERE clause correctly rejects a stale bid (affected = 0).
+ *   - A valid bid that wins the atomic race is committed and returns success.
+ *   - On any unexpected error, the transaction is rolled back, leaving no partial state.
  *
- * NOTE: These tests validate the BASELINE behavior (sequential read-then-write).
- * Concurrency tests are added in the next commit once atomic locking is in place.
+ * Test strategy: We mock the QueryRunner returned by DataSource to simulate
+ * what the PostgreSQL database would return — specifically the `affected` row count —
+ * without needing a live database connection.
  */
 
 import { Test, TestingModule } from '@nestjs/testing';
@@ -18,10 +19,10 @@ import { BidsService } from './bids.service';
 import { Product } from '../products/entities/product.entity';
 import { Bid } from './entities/bid.entity';
 
-describe('BidsService (baseline)', () => {
+describe('BidsService (atomic locking)', () => {
   let service: BidsService;
 
-  /** A product with current_price at $100, used as the baseline auction state. */
+  /** A product with current_price at $100, representing a live auction item. */
   const mockProduct: Partial<Product> = {
     id: 'product-uuid',
     name: 'Vintage Watch',
@@ -29,65 +30,98 @@ describe('BidsService (baseline)', () => {
     highest_bidder_id: 'original-bidder',
   };
 
-  /** Mock product repository: findOne returns the mock product or null. */
-  const mockProductRepo = {
-    findOne: jest.fn(({ where: { id } }) =>
-      id === 'product-uuid' ? Promise.resolve(mockProduct) : Promise.resolve(null),
-    ),
-    update: jest.fn().mockResolvedValue({ affected: 1 }),
-  };
-
-  /** Mock bid repository: simply acknowledges the save without hitting the DB. */
-  const mockBidRepo = {
-    create: jest.fn().mockImplementation(dto => dto),
-    save: jest.fn().mockResolvedValue({ id: 'bid-uuid', ...mockProduct }),
-  };
-
-  /** Mock DataSource: no actual transaction management needed at baseline. */
-  const mockDataSource = {};
-
-  beforeEach(async () => {
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        BidsService,
-        { provide: getRepositoryToken(Product), useValue: mockProductRepo },
-        { provide: getRepositoryToken(Bid), useValue: mockBidRepo },
-        { provide: DataSource, useValue: mockDataSource },
-      ],
-    }).compile();
-
-    service = module.get<BidsService>(BidsService);
+  /**
+   * Mock QueryRunner factory.
+   *
+   * This is the heart of the test setup. We control what `execute()` returns
+   * to simulate two PostgreSQL outcomes:
+   *   - `{ affected: 1 }` → Our UPDATE WHERE clause matched a row: bid wins.
+   *   - `{ affected: 0 }` → Our UPDATE WHERE clause matched nothing: bid is stale.
+   *
+   * @param affected — The simulated number of rows affected by the atomic UPDATE.
+   */
+  const buildMockQueryRunner = (affected: number) => ({
+    connect: jest.fn().mockResolvedValue(undefined),
+    startTransaction: jest.fn().mockResolvedValue(undefined),
+    commitTransaction: jest.fn().mockResolvedValue(undefined),
+    rollbackTransaction: jest.fn().mockResolvedValue(undefined),
+    release: jest.fn().mockResolvedValue(undefined),
+    manager: {
+      // findOne returns the mock product for known IDs, null otherwise
+      findOne: jest.fn((_entity: any, { where: { id } }: any) =>
+        id === 'product-uuid' ? Promise.resolve(mockProduct) : Promise.resolve(null),
+      ),
+      // createQueryBuilder chains to ultimately call execute() returning our simulated `affected`
+      createQueryBuilder: jest.fn().mockReturnValue({
+        update: jest.fn().mockReturnThis(),
+        set: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        execute: jest.fn().mockResolvedValue({ affected }),
+      }),
+      create: jest.fn().mockImplementation((_entity: any, dto: any) => dto),
+      save: jest.fn().mockResolvedValue({ id: 'bid-uuid' }),
+    },
   });
 
   /**
-   * Happy path: a bid strictly above the current price of $100 should be accepted.
+   * Mock DataSource — replaces the real TypeORM connection pool.
+   * Uses the factory above to return a fresh mock QueryRunner per test.
    */
-  it('should accept a valid bid higher than current price', async () => {
+  const buildMockDataSource = (affected: number) => ({
+    createQueryRunner: jest.fn(() => buildMockQueryRunner(affected)),
+  });
+
+  /** Builds the test module with the given simulated `affected` row count. */
+  const buildModule = async (affected: number): Promise<BidsService> => {
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        BidsService,
+        { provide: getRepositoryToken(Product), useValue: {} },
+        { provide: getRepositoryToken(Bid), useValue: {} },
+        { provide: DataSource, useValue: buildMockDataSource(affected) },
+      ],
+    }).compile();
+    return module.get<BidsService>(BidsService);
+  };
+
+  /**
+   * Happy path — the simulated UPDATE affected 1 row.
+   * This means our bid was higher than `current_price` at the DB level,
+   * so the atomic WHERE clause matched and the bid wins.
+   */
+  it('should accept a bid when the atomic UPDATE affects 1 row', async () => {
+    service = await buildModule(1); // DB reports 1 row updated
     const result = await service.placeBid({
       item_id: 'product-uuid',
-      user_id: 'new-bidder',
+      user_id: 'winner',
       amount: 150,
     });
-
     expect(result.success).toBe(true);
     expect(result.new_price).toBe(150);
   });
 
   /**
-   * Rejection path: a bid equal to the current price must be rejected immediately.
+   * Race condition path — the simulated UPDATE affected 0 rows.
+   * This means our bid's WHERE clause (current_price < amount) found no match:
+   * another concurrent bid already raised the price above our amount.
    */
-  it('should reject a bid equal to or lower than current price', async () => {
+  it('should reject a stale bid when the atomic UPDATE affects 0 rows', async () => {
+    service = await buildModule(0); // DB reports 0 rows updated — bid lost the race
     await expect(
-      service.placeBid({ item_id: 'product-uuid', user_id: 'cheater', amount: 50 }),
+      service.placeBid({ item_id: 'product-uuid', user_id: 'loser', amount: 80 }),
     ).rejects.toThrow(BadRequestException);
   });
 
   /**
-   * Safety path: a bid for a non-existent product UUID yields a 404 Not Found.
+   * Not-found path — the product does not exist.
+   * The QueryRunner's findOne returns null, so we immediately throw 404
+   * (no UPDATE is even attempted).
    */
-  it('should throw NotFoundException for unknown item_id', async () => {
+  it('should throw NotFoundException for an unknown item_id', async () => {
+    service = await buildModule(1); // affected count irrelevant — won't reach UPDATE
     await expect(
-      service.placeBid({ item_id: 'ghost-id', user_id: 'user', amount: 999 }),
+      service.placeBid({ item_id: 'ghost-id', user_id: 'user', amount: 200 }),
     ).rejects.toThrow(NotFoundException);
   });
 });

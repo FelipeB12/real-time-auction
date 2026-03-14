@@ -7,11 +7,27 @@
  * manages the Product lifecycle; BidsService owns the cross-table
  * transactional logic, keeping each service focused on a single responsibility.
  *
- * Phases of this service:
- *   - Commit 7 (current): Baseline — simple sequential read-then-write. 
- *                         No concurrency protection yet. Intentional first step.
- *   - Commit 8 (next):    Atomic SQL update with optimistic locking to prevent 
- *                         race conditions at high-frequency bid volumes.
+ * CONCURRENCY STRATEGY — Optimistic Locking via Atomic SQL:
+ * In a high-frequency auction, multiple clients can submit bids within
+ * the same millisecond. The naive approach (read price → compare → write)
+ * creates a classic TOCTOU (Time-of-Check-Time-of-Use) race condition:
+ *
+ *   Client A reads price = $100 ✓ (passes check)
+ *   Client B reads price = $100 ✓ (passes check simultaneously)
+ *   Client A writes new price = $150
+ *   Client B writes new price = $120 ← WRONG. Lower bid wins. Auction is now UNFAIR.
+ *
+ * The fix is to push the comparison INTO the SQL query itself:
+ *
+ *   UPDATE products
+ *   SET current_price = $150, highest_bidder_id = 'user-A'
+ *   WHERE id = 'item-uuid'
+ *   AND current_price < $150   ← The database evaluates this check atomically.
+ *
+ * If Client A and Client B hit the DB simultaneously, only one UPDATE will
+ * match the WHERE clause (`current_price < amount`) and return `affected = 1`.
+ * The other will find `affected = 0` and is safely rejected. No distributed
+ * locks required. No additional infrastructure. Pure SQL atomicity.
  */
 
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
@@ -25,9 +41,10 @@ import { BidResult } from '@auction/shared';
 @Injectable()
 export class BidsService {
   /**
-   * @param productRepository TypeORM repository for reading and updating Products.
-   * @param bidRepository TypeORM repository for inserting new Bid records.
-   * @param dataSource TypeORM DataSource, used for explicit transaction management.
+   * @param productRepository TypeORM repository for querying product existence.
+   * @param bidRepository TypeORM repository for inserting the winning bid record.
+   * @param dataSource TypeORM DataSource providing the QueryRunner for raw SQL
+   *                   execution within an explicit transaction boundary.
    */
   constructor(
     @InjectRepository(Product)
@@ -36,70 +53,118 @@ export class BidsService {
     @InjectRepository(Bid)
     private readonly bidRepository: Repository<Bid>,
 
-    // DataSource is injected for manual QueryRunner transactions.
-    // This is the foundation that will power our atomic update in the next commit.
+    // DataSource gives us a QueryRunner — the mechanism to issue raw SQL
+    // statements within a manually managed transaction. This is required
+    // because TypeORM's `.update()` helper does not support WHERE conditions
+    // on multiple columns in a single atomic operation.
     private readonly dataSource: DataSource,
   ) {}
 
   /**
-   * Baseline bid placement handler (no concurrency control).
+   * Atomic bid placement handler with optimistic locking.
    *
-   * IMPORTANT: This is an intentional baseline implementation designed to establish
-   * correctness before introducing atomic locking. The next commit will replace the
-   * sequential read-then-write pattern here with a single atomic SQL UPDATE to make
-   * this race-condition-proof under high-frequency concurrent load.
+   * Accepts a bid only if the submitted amount is strictly greater than the
+   * product's `current_price` at the DATABASE level — not just in memory.
+   * This single SQL check eliminates all race conditions at high concurrency.
    *
-   * Current flow:
-   *   1. Validate the target product exists.
-   *   2. Check the incoming bid amount is strictly greater than the current price.
-   *   3. Update the product's current_price and highest_bidder_id.
-   *   4. Insert an immutable Bid record into the bids table.
-   *   5. Return a structured BidResult confirming success.
+   * Transaction flow:
+   *   1. Begin an explicit database transaction via QueryRunner.
+   *   2. Confirm the target product exists (returns 404 if not).
+   *   3. Issue an atomic UPDATE ... WHERE current_price < new_amount.
+   *      If `affected = 0`, the bid lost the race — reject with 400.
+   *   4. Insert an immutable Bid record in the same transaction for audit.
+   *   5. Commit the transaction. Both writes succeed or both roll back.
+   *   6. Return a structured BidResult confirming the new accepted price.
    *
    * @param placeBidDto The incoming bid payload: item_id, user_id, amount.
-   * @returns A BidResult indicating success with the new accepted price.
-   * @throws NotFoundException if the product does not exist.
-   * @throws BadRequestException if the bid amount is not higher than the current price.
+   * @returns A BidResult indicating success with the newly accepted price.
+   * @throws NotFoundException if no product with the given item_id exists.
+   * @throws BadRequestException if another bid was accepted at the same instant
+   *         (the atomic UPDATE found nothing to update — bid is stale).
    */
   async placeBid(placeBidDto: PlaceBidDto): Promise<BidResult> {
     const { item_id, user_id, amount } = placeBidDto;
 
-    // — Step 1: Confirm the product exists. Return 404 if not found.
-    const product = await this.productRepository.findOne({
-      where: { id: item_id },
-    });
+    // — Step 1: Acquire a QueryRunner to manage a manual transaction.
+    // Using a QueryRunner instead of the repository directly gives us
+    // precise control over COMMIT and ROLLBACK behavior.
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
 
-    if (!product) {
-      throw new NotFoundException(
-        `Auction item "${item_id}" does not exist. Cannot place bid.`,
-      );
+    try {
+      // — Step 2: Verify the product exists before issuing the costly UPDATE.
+      // This use of the queryRunner's manager ensures this read participates
+      // in the same transaction context.
+      const product = await queryRunner.manager.findOne(Product, {
+        where: { id: item_id },
+      });
+
+      if (!product) {
+        // Release resources before throwing — no commit or rollback needed
+        // for a simple not-found check.
+        await queryRunner.release();
+        throw new NotFoundException(
+          `Auction item "${item_id}" does not exist. Cannot place bid.`,
+        );
+      }
+
+      // — Step 3: THE CORE ATOMIC UPDATE.
+      // This single SQL statement handles the entire concurrency problem.
+      // The WHERE clause `current_price < :amount` is evaluated atomically
+      // by PostgreSQL under its row-level locking. Only one concurrent
+      // request can win this race — the one that executes first.
+      //
+      // If this query returns `affected = 0`, it means the bid was stale:
+      // either another user submitted a higher bid in the same millisecond,
+      // or the submitted amount was not greater than the current price.
+      const updateResult = await queryRunner.manager
+        .createQueryBuilder()
+        .update(Product)
+        .set({
+          current_price: amount,
+          highest_bidder_id: user_id,
+        })
+        .where('id = :item_id', { item_id })
+        .andWhere('current_price < :amount', { amount })
+        .execute();
+
+      // If no rows were affected, this bid lost the atomic race.
+      if (updateResult.affected === 0) {
+        await queryRunner.rollbackTransaction();
+        await queryRunner.release();
+        throw new BadRequestException(
+          `Bid of $${amount} was rejected. The current price has already moved to $${product.current_price} or higher.`,
+        );
+      }
+
+      // — Step 4: Insert the immutable bid audit record IN THE SAME TRANSACTION.
+      // If this insert fails, the entire transaction rolls back —
+      // preventing the product price from updating without a corresponding record.
+      const bid = queryRunner.manager.create(Bid, { item_id, user_id, amount });
+      await queryRunner.manager.save(bid);
+
+      // — Step 5: Commit both the product UPDATE and the bid INSERT atomically.
+      // From this point forward, both changes are durable in PostgreSQL.
+      await queryRunner.commitTransaction();
+
+      // — Step 6: Return the standardized success result.
+      return {
+        success: true,
+        message: 'Bid accepted successfully.',
+        new_price: amount,
+      };
+    } catch (error) {
+      // If any unexpected error occurs mid-transaction, roll back BOTH writes
+      // to ensure the database is never left in a partially updated state.
+      // Re-throw the error so NestJS can return the appropriate HTTP response.
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      // ALWAYS release the QueryRunner back to the connection pool,
+      // regardless of whether the transaction succeeded or failed.
+      // Failing to release causes connection pool exhaustion under load.
+      await queryRunner.release();
     }
-
-    // — Step 2: Business rule — a bid must strictly exceed the current price.
-    // NOTE: This check is intentionally a simple in-memory comparison at baseline.
-    // In the next commit, this check will move into the SQL WHERE clause itself,
-    // making it atomic and race-condition-proof at the database level.
-    if (amount <= product.current_price) {
-      throw new BadRequestException(
-        `Bid amount $${amount} must be greater than the current price of $${product.current_price}.`,
-      );
-    }
-
-    // — Step 3: Update the product to reflect the new winning bid price and bidder.
-    await this.productRepository.update(item_id, {
-      current_price: amount,
-      highest_bidder_id: user_id,
-    });
-
-    // — Step 4: Append an immutable record to the bids table for audit history.
-    const bid = this.bidRepository.create({ item_id, user_id, amount });
-    await this.bidRepository.save(bid);
-
-    // — Step 5: Return the standardized result following the shared BidResult interface.
-    return {
-      success: true,
-      message: 'Bid accepted successfully.',
-      new_price: amount,
-    };
   }
 }
