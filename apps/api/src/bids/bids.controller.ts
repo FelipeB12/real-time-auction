@@ -18,6 +18,8 @@
 import {
   Controller,
   Post,
+  Get,
+  Param,
   Body,
   HttpCode,
   HttpStatus,
@@ -28,7 +30,7 @@ import { BidsService } from './bids.service';
 import { IdempotencyService } from '../common/idempotency.service';
 import { PlaceBidDto } from './dto/place-bid.dto';
 import { AuctionErrorCode } from '../common/errors.types';
-import { BidResult } from '@auction/shared';
+import { BidResult, BidEvent } from '@auction/shared';
 
 @Controller('bids')
 export class BidsController {
@@ -95,5 +97,20 @@ export class BidsController {
     await this.idempotencyService.cacheResult(idempotencyKey, result);
 
     return result;
+  }
+
+  /**
+   * Handler for: GET /bids/:itemId/history
+   *
+   * Fetches the recent bid history for a specific auction item.
+   * This is used by the frontend to populate the live history list on initial load
+   * or refresh, ensuring that even finished test runs are visible in the proof UI.
+   *
+   * @param itemId The UUID of the auction product.
+   * @returns An array of recent BidEvent objects.
+   */
+  @Get(':itemId/history')
+  async getHistory(@Param('itemId') itemId: string): Promise<BidEvent[]> {
+    return this.bidsService.getHistory(itemId);
   }
 }

@@ -30,6 +30,7 @@ exports.AuctionModule = AuctionModule = __decorate([
         ],
         exports: [
             auction_service_1.AuctionService,
+            auction_gateway_1.AuctionGateway,
         ],
     })
 ], AuctionModule);

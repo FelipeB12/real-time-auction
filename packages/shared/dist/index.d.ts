@@ -12,6 +12,8 @@ export interface Product {
     description?: string;
     current_price: number;
     highest_bidder_id?: string;
+    accepted_count: number;
+    rejected_count: number;
     created_at: Date;
     updated_at: Date;
 }
@@ -38,6 +40,22 @@ export interface BidResult {
 export interface BidEvent {
     item_id: string;
     new_price: number;
+    bidder_id?: string;
+    accepted_count: number;
+    rejected_count: number;
+    timestamp: string;
+}
+/**
+ * Event emitted directly from BidsService when a bid is rejected
+ * (e.g., STALE_BID — another bid won the race).
+ * Allows the UI to display ALL rejections including those from VUs.
+ */
+export interface BidRejectedEvent {
+    item_id: string;
     bidder_id: string;
+    attempted_amount: number;
+    reason: string;
+    accepted_count: number;
+    rejected_count: number;
     timestamp: string;
 }

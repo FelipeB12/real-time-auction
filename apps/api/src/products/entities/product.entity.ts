@@ -33,6 +33,12 @@ export class Product implements IProduct {
   @Column({ nullable: true })
   highest_bidder_id?: string;
 
+  @Column('int', { default: 0 })
+  accepted_count: number;
+
+  @Column('int', { default: 0 })
+  rejected_count: number;
+
   @CreateDateColumn()
   created_at: Date;
 

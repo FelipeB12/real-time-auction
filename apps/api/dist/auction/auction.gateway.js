@@ -54,6 +54,9 @@ let AuctionGateway = AuctionGateway_1 = class AuctionGateway {
             this.logger.error('Failed to parse or relay bid event:', error instanceof Error ? error.message : String(error));
         }
     }
+    emitBidRejected(event) {
+        this.server.emit('bid_rejected', event);
+    }
     handleConnection(client) {
         this.logger.log(`Client connected: ${client.id}`);
     }

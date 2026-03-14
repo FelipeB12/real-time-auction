@@ -15,6 +15,7 @@ const product_entity_1 = require("../products/entities/product.entity");
 const bid_entity_1 = require("./entities/bid.entity");
 const outbox_entity_1 = require("../common/entities/outbox.entity");
 const common_module_1 = require("../common/common.module");
+const auction_module_1 = require("../auction/auction.module");
 let BidsModule = class BidsModule {
 };
 exports.BidsModule = BidsModule;
@@ -23,6 +24,7 @@ exports.BidsModule = BidsModule = __decorate([
         imports: [
             typeorm_1.TypeOrmModule.forFeature([product_entity_1.Product, bid_entity_1.Bid, outbox_entity_1.Outbox]),
             common_module_1.CommonModule,
+            auction_module_1.AuctionModule,
         ],
         controllers: [bids_controller_1.BidsController],
         providers: [bids_service_1.BidsService],

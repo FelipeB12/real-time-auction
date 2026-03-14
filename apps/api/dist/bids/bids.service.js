@@ -20,14 +20,17 @@ const errors_types_1 = require("../common/errors.types");
 const product_entity_1 = require("../products/entities/product.entity");
 const bid_entity_1 = require("./entities/bid.entity");
 const outbox_entity_1 = require("../common/entities/outbox.entity");
+const auction_gateway_1 = require("../auction/auction.gateway");
 let BidsService = class BidsService {
     productRepository;
     bidRepository;
     dataSource;
-    constructor(productRepository, bidRepository, dataSource) {
+    auctionGateway;
+    constructor(productRepository, bidRepository, dataSource, auctionGateway) {
         this.productRepository = productRepository;
         this.bidRepository = bidRepository;
         this.dataSource = dataSource;
+        this.auctionGateway = auctionGateway;
     }
     async placeBid(placeBidDto) {
         const { item_id, user_id, amount } = placeBidDto;
@@ -39,7 +42,6 @@ let BidsService = class BidsService {
                 where: { id: item_id },
             });
             if (!product) {
-                await queryRunner.release();
                 throw new common_1.NotFoundException({
                     error_code: errors_types_1.AuctionErrorCode.ITEM_NOT_FOUND,
                     message: `Auction item "${item_id}" does not exist. Cannot place bid.`,
@@ -51,24 +53,49 @@ let BidsService = class BidsService {
                 .set({
                 current_price: amount,
                 highest_bidder_id: user_id,
+                accepted_count: () => 'accepted_count + 1',
             })
                 .where('id = :item_id', { item_id })
                 .andWhere('current_price < :amount', { amount })
                 .execute();
             if (updateResult.affected === 0) {
-                await queryRunner.rollbackTransaction();
-                await queryRunner.release();
+                await queryRunner.manager
+                    .createQueryBuilder()
+                    .update(product_entity_1.Product)
+                    .set({ rejected_count: () => 'rejected_count + 1' })
+                    .where('id = :item_id', { item_id })
+                    .execute();
+                const updatedProduct = await queryRunner.manager.findOne(product_entity_1.Product, { where: { id: item_id } });
+                const rejectionEvent = {
+                    item_id,
+                    bidder_id: user_id,
+                    attempted_amount: amount,
+                    reason: errors_types_1.AuctionErrorCode.STALE_BID,
+                    accepted_count: updatedProduct?.accepted_count || 0,
+                    rejected_count: updatedProduct?.rejected_count || 0,
+                    timestamp: new Date().toISOString(),
+                };
+                this.auctionGateway.emitBidRejected(rejectionEvent);
                 throw new common_1.BadRequestException({
                     error_code: errors_types_1.AuctionErrorCode.STALE_BID,
                     message: `Bid of $${amount} was rejected. The current price has already moved to $${product.current_price} or higher.`,
                 });
             }
-            const bid = queryRunner.manager.create(bid_entity_1.Bid, { item_id, user_id, amount });
+            const updatedProduct = await queryRunner.manager.findOne(product_entity_1.Product, { where: { id: item_id } });
+            const bid = queryRunner.manager.create(bid_entity_1.Bid, {
+                item_id,
+                user_id,
+                amount,
+                accepted_count: updatedProduct?.accepted_count || 0,
+                rejected_count: updatedProduct?.rejected_count || 0,
+            });
             await queryRunner.manager.save(bid);
             const bidEvent = {
                 item_id,
                 new_price: amount,
                 bidder_id: user_id,
+                accepted_count: updatedProduct?.accepted_count || 0,
+                rejected_count: updatedProduct?.rejected_count || 0,
                 timestamp: new Date().toISOString(),
             };
             const outboxEntry = queryRunner.manager.create(outbox_entity_1.Outbox, {
@@ -84,12 +111,29 @@ let BidsService = class BidsService {
             };
         }
         catch (error) {
-            await queryRunner.rollbackTransaction();
+            if (queryRunner.isTransactionActive) {
+                await queryRunner.rollbackTransaction();
+            }
             throw error;
         }
         finally {
             await queryRunner.release();
         }
+    }
+    async getHistory(itemId, limit = 10) {
+        const bids = await this.bidRepository.find({
+            where: { item_id: itemId },
+            order: { created_at: 'DESC' },
+            take: limit,
+        });
+        return bids.map((bid) => ({
+            item_id: bid.item_id,
+            new_price: bid.amount,
+            highest_bidder_id: bid.user_id,
+            accepted_count: bid.accepted_count,
+            rejected_count: bid.rejected_count,
+            timestamp: bid.created_at.toISOString(),
+        }));
     }
 };
 exports.BidsService = BidsService;
@@ -99,6 +143,7 @@ exports.BidsService = BidsService = __decorate([
     __param(1, (0, typeorm_1.InjectRepository)(bid_entity_1.Bid)),
     __metadata("design:paramtypes", [typeorm_2.Repository,
         typeorm_2.Repository,
-        typeorm_2.DataSource])
+        typeorm_2.DataSource,
+        auction_gateway_1.AuctionGateway])
 ], BidsService);
 //# sourceMappingURL=bids.service.js.map

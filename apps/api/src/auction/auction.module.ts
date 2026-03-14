@@ -37,6 +37,9 @@ import { Product } from '../products/entities/product.entity';
   exports: [
     // Exported so future modules (e.g., Bids, WebSocket Gateway) can read auction state
     AuctionService,
+    // Exported so BidsModule can inject the gateway to emit real-time rejection events.
+    AuctionGateway,
   ],
+
 })
 export class AuctionModule {}

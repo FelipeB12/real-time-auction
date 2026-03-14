@@ -17,6 +17,8 @@ let Product = class Product {
     description;
     current_price;
     highest_bidder_id;
+    accepted_count;
+    rejected_count;
     created_at;
     updated_at;
 };
@@ -41,6 +43,14 @@ __decorate([
     (0, typeorm_1.Column)({ nullable: true }),
     __metadata("design:type", String)
 ], Product.prototype, "highest_bidder_id", void 0);
+__decorate([
+    (0, typeorm_1.Column)('int', { default: 0 }),
+    __metadata("design:type", Number)
+], Product.prototype, "accepted_count", void 0);
+__decorate([
+    (0, typeorm_1.Column)('int', { default: 0 }),
+    __metadata("design:type", Number)
+], Product.prototype, "rejected_count", void 0);
 __decorate([
     (0, typeorm_1.CreateDateColumn)(),
     __metadata("design:type", Date)

@@ -42,7 +42,8 @@ import { Product } from '../products/entities/product.entity';
 import { Bid } from './entities/bid.entity';
 import { Outbox } from '../common/entities/outbox.entity';
 import { PlaceBidDto } from './dto/place-bid.dto';
-import { BidResult, BidEvent } from '@auction/shared';
+import { BidResult, BidEvent, BidRejectedEvent } from '@auction/shared';
+import { AuctionGateway } from '../auction/auction.gateway';
 
 @Injectable()
 export class BidsService {
@@ -51,6 +52,9 @@ export class BidsService {
    * @param bidRepository TypeORM repository for inserting the winning bid record.
    * @param dataSource TypeORM DataSource providing the QueryRunner for raw SQL
    *                   execution within an explicit transaction boundary.
+   * @param auctionGateway Injected to emit real-time `bid_rejected` events directly
+   *                       to connected clients without going through the outbox
+   *                       (rejections are transient UI signals, not durable records).
    */
   constructor(
     @InjectRepository(Product)
@@ -59,11 +63,9 @@ export class BidsService {
     @InjectRepository(Bid)
     private readonly bidRepository: Repository<Bid>,
 
-    // DataSource gives us a QueryRunner — the mechanism to issue raw SQL
-    // statements within a manually managed transaction. This is required
-    // because TypeORM's `.update()` helper does not support WHERE conditions
-    // on multiple columns in a single atomic operation.
     private readonly dataSource: DataSource,
+
+    private readonly auctionGateway: AuctionGateway,
   ) {}
 
   /**
@@ -101,17 +103,11 @@ export class BidsService {
 
     try {
       // — Step 2: Verify the product exists before issuing the costly UPDATE.
-      // This use of the queryRunner's manager ensures this read participates
-      // in the same transaction context.
       const product = await queryRunner.manager.findOne(Product, {
         where: { id: item_id },
       });
 
       if (!product) {
-        // Release resources before throwing — no commit or rollback needed
-        // for a simple not-found check.
-        await queryRunner.release();
-        // Throw with a structured body so AuctionExceptionFilter emits the error_code
         throw new NotFoundException({
           error_code: AuctionErrorCode.ITEM_NOT_FOUND,
           message: `Auction item "${item_id}" does not exist. Cannot place bid.`,
@@ -119,49 +115,68 @@ export class BidsService {
       }
 
       // — Step 3: THE CORE ATOMIC UPDATE.
-      // This single SQL statement handles the entire concurrency problem.
-      // The WHERE clause `current_price < :amount` is evaluated atomically
-      // by PostgreSQL under its row-level locking. Only one concurrent
-      // request can win this race — the one that executes first.
-      //
-      // If this query returns `affected = 0`, it means the bid was stale:
-      // either another user submitted a higher bid in the same millisecond,
-      // or the submitted amount was not greater than the current price.
       const updateResult = await queryRunner.manager
         .createQueryBuilder()
         .update(Product)
         .set({
           current_price: amount,
           highest_bidder_id: user_id,
+          accepted_count: () => 'accepted_count + 1',
         })
         .where('id = :item_id', { item_id })
         .andWhere('current_price < :amount', { amount })
         .execute();
-
       // If no rows were affected, this bid lost the atomic race.
       if (updateResult.affected === 0) {
-        await queryRunner.rollbackTransaction();
-        await queryRunner.release();
-        // Throw with a structured body so AuctionExceptionFilter emits STALE_BID
+        // and increment rejected_count atomically.
+        await queryRunner.manager
+          .createQueryBuilder()
+          .update(Product)
+          .set({ rejected_count: () => 'rejected_count + 1' })
+          .where('id = :item_id', { item_id })
+          .execute();
+
+        // Fetch updated counts for the rejection event
+        const updatedProduct = await queryRunner.manager.findOne(Product, { where: { id: item_id } });
+
+        // — Emit bid_rejected directly via WebSocket (no outbox — rejections are transient).
+        const rejectionEvent: BidRejectedEvent = {
+          item_id,
+          bidder_id: user_id,
+          attempted_amount: amount,
+          reason: AuctionErrorCode.STALE_BID,
+          accepted_count: updatedProduct?.accepted_count || 0,
+          rejected_count: updatedProduct?.rejected_count || 0,
+          timestamp: new Date().toISOString(),
+        };
+        this.auctionGateway.emitBidRejected(rejectionEvent);
+
         throw new BadRequestException({
           error_code: AuctionErrorCode.STALE_BID,
           message: `Bid of $${amount} was rejected. The current price has already moved to $${product.current_price} or higher.`,
         });
       }
 
-      // — Step 4: Insert the immutable bid audit record IN THE SAME TRANSACTION.
-      // If this insert fails, the entire transaction rolls back —
-      // preventing the product price from updating without a corresponding record.
-      const bid = queryRunner.manager.create(Bid, { item_id, user_id, amount });
+      // Fetch updated counts for the success event
+      const updatedProduct = await queryRunner.manager.findOne(Product, { where: { id: item_id } });
+
+      // — Step 4: Insert the immutable bid audit record.
+      const bid = queryRunner.manager.create(Bid, {
+        item_id,
+        user_id,
+        amount,
+        accepted_count: updatedProduct?.accepted_count || 0,
+        rejected_count: updatedProduct?.rejected_count || 0,
+      });
       await queryRunner.manager.save(bid);
 
       // — Step 5: Save the event to the Transactional OUTBOX.
-      // This ensures that even if Redis or the WebSocket gateway is down,
-      // the event is captured and will be published eventually.
       const bidEvent: BidEvent = {
         item_id,
         new_price: amount,
         bidder_id: user_id,
+        accepted_count: updatedProduct?.accepted_count || 0,
+        rejected_count: updatedProduct?.rejected_count || 0,
         timestamp: new Date().toISOString(),
       };
 
@@ -171,26 +186,41 @@ export class BidsService {
       });
       await queryRunner.manager.save(outboxEntry);
 
-      // — Step 6: Commit all changes (Product update, Bid record, and Outbox event).
+      // — Step 6: Commit all changes.
       await queryRunner.commitTransaction();
 
-      // — Step 6: Return the standardized success result.
       return {
         success: true,
         message: 'Bid accepted successfully.',
         new_price: amount,
       };
     } catch (error) {
-      // If any unexpected error occurs mid-transaction, roll back BOTH writes
-      // to ensure the database is never left in a partially updated state.
-      // Re-throw the error so NestJS can return the appropriate HTTP response.
-      await queryRunner.rollbackTransaction();
+      // If a transaction was started, roll it back on any error.
+      // This includes our intentional BadRequest/NotFound exceptions.
+      if (queryRunner.isTransactionActive) {
+        await queryRunner.rollbackTransaction();
+      }
       throw error;
     } finally {
-      // ALWAYS release the QueryRunner back to the connection pool,
-      // regardless of whether the transaction succeeded or failed.
-      // Failing to release causes connection pool exhaustion under load.
+      // ALWAYS release the QueryRunner back to the connection pool exactly once.
       await queryRunner.release();
     }
+  }
+
+  async getHistory(itemId: string, limit: number = 10): Promise<BidEvent[]> {
+    const bids = await this.bidRepository.find({
+      where: { item_id: itemId },
+      order: { created_at: 'DESC' },
+      take: limit,
+    });
+
+    return bids.map((bid) => ({
+      item_id: bid.item_id,
+      new_price: bid.amount,
+      highest_bidder_id: bid.user_id,
+      accepted_count: bid.accepted_count,
+      rejected_count: bid.rejected_count,
+      timestamp: bid.created_at.toISOString(),
+    }));
   }
 }

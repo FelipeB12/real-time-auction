@@ -61,6 +61,8 @@ export class AuctionService {
       highest_bidder_id: product.highest_bidder_id,
       // Capture the exact server-side timestamp at the moment of snapshot generation
       snapshot_at: new Date().toISOString(),
+      accepted_count: product.accepted_count,
+      rejected_count: product.rejected_count,
     };
 
     return state;

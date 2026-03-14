@@ -35,66 +35,88 @@ const BASE_URL = __ENV.API_URL || 'http://localhost:3000/api';
 const WS_URL = __ENV.WS_URL || 'ws://localhost:3000/auction';
 
 /**
+ * 0. Setup Phase: Ensure at least one product exists for the bidding war.
+ * This runs ONCE before any VUs are started.
+ */
+export function setup() {
+  const productsRes = http.get(`${BASE_URL}/products`);
+  const products = productsRes.json();
+
+  if (Array.isArray(products) && products.length > 0) {
+    console.log(`Found ${products.length} existing products. Using first one for test.`);
+    return { itemId: products[0].id };
+  }
+
+  console.log('No products found in database. Seeding a test product...');
+  const payload = JSON.stringify({
+    name: 'CI/CD Load Test Product',
+    description: 'Auto-seeded for performance validation',
+    current_price: 100,
+  });
+
+  const params = {
+    headers: { 'Content-Type': 'application/json' },
+  };
+
+  const seedRes = http.post(`${BASE_URL}/products`, payload, params);
+
+  if (seedRes.status !== 201 && seedRes.status !== 200) {
+    throw new Error(`CRITICAL: Failed to seed product. Status=${seedRes.status} Body=${seedRes.body}`);
+  }
+
+  const seededProduct = seedRes.json();
+  console.log(`Successfully seeded product ID: ${seededProduct.id}`);
+  return { itemId: seededProduct.id };
+}
+
+/**
  * Main Virtual User (VU) behavior.
  * Each VU simulates a bidder placing high-frequency bids.
  */
-export default function () {
-  // Using a valid UUID format for user_id to satisfy PostgreSQL constraints
-  const userId = '00000000-0000-0000-0000-' + (__VU + 1000).toString().padStart(12, '0');
-  
-  // 1. Fetch available products to target the first one
-  const productsRes = http.get(`${BASE_URL}/products`);
-  const products = productsRes.json();
-  
-  const hasProducts = check(productsRes, { 
-    'products fetch successful': (r) => r.status === 200,
-    'at least one product exists': () => Array.isArray(products) && products.length > 0,
-  });
+export default function (data) {
+  const userId = `vu-user-${(__VU + 1).toString().padStart(3, '0')}`;
+  const ITEM_ID = data.itemId;
 
-  if (hasProducts) {
-    const ITEM_ID = products[0].id;
-    
-    // 2. Fetch current state to determine valid bid
-    const stateRes = http.get(`${BASE_URL}/auction/${ITEM_ID}/state`);
-    const hasState = check(stateRes, { 'status is 200': (r) => r.status === 200 });
+  // 1. Fetch current state to determine valid bid
+  const stateRes = http.get(`${BASE_URL}/auction/${ITEM_ID}/state`);
+  const hasState = check(stateRes, { 'status is 200': (r) => r.status === 200 });
 
-    if (hasState) {
-      const product = stateRes.json();
-      const currentPrice = parseFloat(product.current_price);
-      const bidAmount = currentPrice + Math.floor(Math.random() * 50) + 1;
+  if (hasState) {
+    const product = stateRes.json();
+    const currentPrice = parseFloat(product.current_price);
+    const bidAmount = currentPrice + Math.floor(Math.random() * 50) + 1;
 
-      // 3. Attempt to place a bid (Concurrency & Atomicity Test)
-      const payload = JSON.stringify({
-        item_id: ITEM_ID,
-        user_id: userId,
-        amount: bidAmount,
-      });
+    // 2. Attempt to place a bid (Concurrency & Atomicity Test)
+    const payload = JSON.stringify({
+      item_id: ITEM_ID,
+      user_id: userId,
+      amount: bidAmount,
+    });
 
-      const params = {
-        headers: {
-          'Content-Type': 'application/json',
-          'Idempotency-Key': `${userId}-${bidAmount}`,
-        },
-      };
+    const params = {
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': `${userId}-${bidAmount}`,
+      },
+    };
 
-      const startTime = Date.now();
-      const bidRes = http.post(`${BASE_URL}/bids/place-bid`, payload, params);
-      bidLatency.add(Date.now() - startTime);
+    const startTime = Date.now();
+    const bidRes = http.post(`${BASE_URL}/bids/place-bid`, payload, params);
+    bidLatency.add(Date.now() - startTime);
 
-      // 4. Analyze Results
-      if (bidRes.status !== 200 && bidRes.status !== 400) {
-        console.log(`Bid Failed: Status=${bidRes.status} Body=${bidRes.body}`);
-      }
-      
-      check(bidRes, {
-        'bid handled (200 or 400)': (r) => r.status === 200 || r.status === 400,
-      });
+    // 3. Analyze Results
+    if (bidRes.status !== 200 && bidRes.status !== 400) {
+      console.log(`Bid Failed: Status=${bidRes.status} Body=${bidRes.body}`);
+    }
 
-      if (bidRes.status === 200) {
-        successfulBids.add(1);
-      } else if (bidRes.status === 400) {
-        rejectedBids.add(1);
-      }
+    check(bidRes, {
+      'bid handled (200 or 400)': (r) => r.status === 200 || r.status === 400,
+    });
+
+    if (bidRes.status === 200) {
+      successfulBids.add(1);
+    } else if (bidRes.status === 400) {
+      rejectedBids.add(1);
     }
   }
 

@@ -35,6 +35,8 @@ let AuctionService = class AuctionService {
             current_price: product.current_price,
             highest_bidder_id: product.highest_bidder_id,
             snapshot_at: new Date().toISOString(),
+            accepted_count: product.accepted_count,
+            rejected_count: product.rejected_count,
         };
         return state;
     }

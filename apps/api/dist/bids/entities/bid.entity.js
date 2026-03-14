@@ -15,6 +15,8 @@ let Bid = class Bid {
     id;
     item_id;
     user_id;
+    accepted_count;
+    rejected_count;
     amount;
     created_at;
 };
@@ -28,9 +30,17 @@ __decorate([
     __metadata("design:type", String)
 ], Bid.prototype, "item_id", void 0);
 __decorate([
-    (0, typeorm_1.Column)('uuid'),
+    (0, typeorm_1.Column)(),
     __metadata("design:type", String)
 ], Bid.prototype, "user_id", void 0);
+__decorate([
+    (0, typeorm_1.Column)('int', { default: 0 }),
+    __metadata("design:type", Number)
+], Bid.prototype, "accepted_count", void 0);
+__decorate([
+    (0, typeorm_1.Column)('int', { default: 0 }),
+    __metadata("design:type", Number)
+], Bid.prototype, "rejected_count", void 0);
 __decorate([
     (0, typeorm_1.Column)('decimal', { precision: 12, scale: 2 }),
     __metadata("design:type", Number)

@@ -40,6 +40,9 @@ let BidsController = class BidsController {
         await this.idempotencyService.cacheResult(idempotencyKey, result);
         return result;
     }
+    async getHistory(itemId) {
+        return this.bidsService.getHistory(itemId);
+    }
 };
 exports.BidsController = BidsController;
 __decorate([
@@ -51,6 +54,13 @@ __decorate([
     __metadata("design:paramtypes", [String, place_bid_dto_1.PlaceBidDto]),
     __metadata("design:returntype", Promise)
 ], BidsController.prototype, "placeBid", null);
+__decorate([
+    (0, common_1.Get)(':itemId/history'),
+    __param(0, (0, common_1.Param)('itemId')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String]),
+    __metadata("design:returntype", Promise)
+], BidsController.prototype, "getHistory", null);
 exports.BidsController = BidsController = __decorate([
     (0, common_1.Controller)('bids'),
     __metadata("design:paramtypes", [bids_service_1.BidsService,

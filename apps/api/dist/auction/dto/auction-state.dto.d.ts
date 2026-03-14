@@ -4,4 +4,6 @@ export declare class AuctionStateDto {
     highest_bidder_id?: string;
     name: string;
     snapshot_at: string;
+    accepted_count: number;
+    rejected_count: number;
 }

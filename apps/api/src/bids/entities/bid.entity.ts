@@ -22,8 +22,19 @@ export class Bid {
   @Column('uuid')
   item_id: string;
 
-  @Column('uuid')
+  /**
+   * The identifier of the user who placed this bid.
+   * Stored as plain text (not uuid) to support both UUID-format identifiers
+   * and human-readable VU ids such as "vu-user-007" used by load tests.
+   */
+  @Column()
   user_id: string;
+
+  @Column('int', { default: 0 })
+  accepted_count: number;
+
+  @Column('int', { default: 0 })
+  rejected_count: number;
 
   @Column('decimal', { precision: 12, scale: 2 })
   amount: number;

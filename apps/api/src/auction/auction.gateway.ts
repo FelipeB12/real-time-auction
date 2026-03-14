@@ -104,6 +104,18 @@ export class AuctionGateway
   }
 
   /**
+   * Directly emits a bid rejection event to all connected clients.
+   * This is used for real-time feedback on rejected bids (e.g., from VUs).
+   * Unlike accepted bids, these are not persisted in the outbox as they
+   * are transient UI feedback.
+   *
+   * @param event The structured rejection data.
+   */
+  emitBidRejected(event: any) {
+    this.server.emit('bid_rejected', event);
+  }
+
+  /**
    * Lifecycle hook for new client connections.
    */
   handleConnection(client: Socket) {

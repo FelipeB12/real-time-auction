@@ -7,6 +7,7 @@ export declare class AuctionGateway implements OnGatewayInit, OnGatewayConnectio
     constructor();
     afterInit(): void;
     private handleBidAccepted;
+    emitBidRejected(event: any): void;
     handleConnection(client: Socket): void;
     handleDisconnect(client: Socket): void;
 }
