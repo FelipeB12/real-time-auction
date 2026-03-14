@@ -36,8 +36,9 @@ import { Repository, DataSource } from 'typeorm';
 import { AuctionErrorCode } from '../common/errors.types';
 import { Product } from '../products/entities/product.entity';
 import { Bid } from './entities/bid.entity';
+import { Outbox } from '../common/entities/outbox.entity';
 import { PlaceBidDto } from './dto/place-bid.dto';
-import { BidResult } from '@auction/shared';
+import { BidResult, BidEvent } from '@auction/shared';
 
 @Injectable()
 export class BidsService {
@@ -74,8 +75,9 @@ export class BidsService {
    *   3. Issue an atomic UPDATE ... WHERE current_price < new_amount.
    *      If `affected = 0`, the bid lost the race — reject with 400.
    *   4. Insert an immutable Bid record in the same transaction for audit.
-   *   5. Commit the transaction. Both writes succeed or both roll back.
-   *   6. Return a structured BidResult confirming the new accepted price.
+   *   5. Save a BidEvent to the Outbox table for reliable WebSocket notification.
+   *   6. Commit the transaction. Both writes succeed or both roll back.
+   *   7. Return a structured BidResult confirming the new accepted price.
    *
    * @param placeBidDto The incoming bid payload: item_id, user_id, amount.
    * @returns A BidResult indicating success with the newly accepted price.
@@ -149,8 +151,23 @@ export class BidsService {
       const bid = queryRunner.manager.create(Bid, { item_id, user_id, amount });
       await queryRunner.manager.save(bid);
 
-      // — Step 5: Commit both the product UPDATE and the bid INSERT atomically.
-      // From this point forward, both changes are durable in PostgreSQL.
+      // — Step 5: Save the event to the Transactional OUTBOX.
+      // This ensures that even if Redis or the WebSocket gateway is down, 
+      // the event is captured and will be published eventually.
+      const bidEvent: BidEvent = {
+        item_id,
+        new_price: amount,
+        bidder_id: user_id,
+        timestamp: new Date().toISOString(),
+      };
+
+      const outboxEntry = queryRunner.manager.create(Outbox, {
+        type: 'bid.accepted',
+        payload: bidEvent,
+      });
+      await queryRunner.manager.save(outboxEntry);
+
+      // — Step 6: Commit all changes (Product update, Bid record, and Outbox event).
       await queryRunner.commitTransaction();
 
       // — Step 6: Return the standardized success result.

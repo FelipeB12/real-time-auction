@@ -4,6 +4,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { Product } from './products/entities/product.entity';
 import { Bid } from './bids/entities/bid.entity';
+import { Outbox } from './common/entities/outbox.entity';
 import { ProductsModule } from './products/products.module';
 import { AuctionModule } from './auction/auction.module';
 import { BidsModule } from './bids/bids.module';
@@ -22,7 +23,7 @@ import { BidsModule } from './bids/bids.module';
       username: process.env.DB_USER || 'admin',
       password: process.env.DB_PASSWORD || 'password',
       database: process.env.DB_NAME || 'auction_db',
-      entities: [Product, Bid],
+      entities: [Product, Bid, Outbox],
       synchronize: true, 
     }),
     ProductsModule,

@@ -18,6 +18,7 @@ import { DataSource } from 'typeorm';
 import { BidsService } from './bids.service';
 import { Product } from '../products/entities/product.entity';
 import { Bid } from './entities/bid.entity';
+import { Outbox } from '../common/entities/outbox.entity';
 
 describe('BidsService (atomic locking)', () => {
   let service: BidsService;
@@ -59,8 +60,8 @@ describe('BidsService (atomic locking)', () => {
         andWhere: jest.fn().mockReturnThis(),
         execute: jest.fn().mockResolvedValue({ affected }),
       }),
-      create: jest.fn().mockImplementation((_entity: any, dto: any) => dto),
-      save: jest.fn().mockResolvedValue({ id: 'bid-uuid' }),
+      create: jest.fn().mockImplementation((entity: any, dto: any) => ({ ...dto, entityName: entity.name })),
+      save: jest.fn().mockResolvedValue({ id: 'saved-id' }),
     },
   });
 
@@ -79,6 +80,7 @@ describe('BidsService (atomic locking)', () => {
         BidsService,
         { provide: getRepositoryToken(Product), useValue: {} },
         { provide: getRepositoryToken(Bid), useValue: {} },
+        { provide: getRepositoryToken(Outbox), useValue: {} },
         { provide: DataSource, useValue: buildMockDataSource(affected) },
       ],
     }).compile();

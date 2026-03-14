@@ -16,12 +16,13 @@ import { BidsService } from './bids.service';
 import { BidsController } from './bids.controller';
 import { Product } from '../products/entities/product.entity';
 import { Bid } from './entities/bid.entity';
+import { Outbox } from '../common/entities/outbox.entity';
 import { CommonModule } from '../common/common.module';
 
 @Module({
   imports: [
-    // Both entities are needed: Product (to update price atomically), Bid (to record history)
-    TypeOrmModule.forFeature([Product, Bid]),
+    // Entities needed: Product (price updates), Bid (audit), Outbox (events)
+    TypeOrmModule.forFeature([Product, Bid, Outbox]),
     // Provides IdempotencyService (Redis-backed) for injection into BidsController
     CommonModule,
   ],

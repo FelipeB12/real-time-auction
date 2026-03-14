@@ -28,6 +28,7 @@ import { DataSource } from 'typeorm';
 import { BidsService } from './bids.service';
 import { Product } from '../products/entities/product.entity';
 import { Bid } from './entities/bid.entity';
+import { Outbox } from '../common/entities/outbox.entity';
 
 describe('BidsService — Concurrent Bid Integration Tests', () => {
   let service: BidsService;
@@ -68,8 +69,9 @@ describe('BidsService — Concurrent Bid Integration Tests', () => {
           // Returns `affected = 1` exactly once, then `affected = 0` for all others.
           execute: jest.fn().mockResolvedValue({ affected }),
         }),
-        create: jest.fn().mockImplementation((_e: any, dto: any) => dto),
-        save: jest.fn().mockResolvedValue({ id: 'bid-uuid' }),
+        // Match the service.spec create/save mocks for consistency
+        create: jest.fn().mockImplementation((entity: any, dto: any) => ({ ...dto, entityName: entity.name })),
+        save: jest.fn().mockResolvedValue({ id: 'saved-id' }),
       },
     };
   };
@@ -83,6 +85,7 @@ describe('BidsService — Concurrent Bid Integration Tests', () => {
         BidsService,
         { provide: getRepositoryToken(Product), useValue: {} },
         { provide: getRepositoryToken(Bid), useValue: {} },
+        { provide: getRepositoryToken(Outbox), useValue: {} },
         {
           provide: DataSource,
           useValue: {
