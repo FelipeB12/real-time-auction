@@ -1,2 +1,7 @@
 # Ignore AI agent files
 .agents
+
+# Ignore node_modules
+node_modules
+
+# Ignore build output

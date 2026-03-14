@@ -3,7 +3,7 @@ version: '3.8'
 services:
   postgres:
     image: postgres:15-alpine
-    container_name: arduron-postgres
+    container_name: real-time-auction-postgres
     environment:
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: password
@@ -20,7 +20,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: arduron-redis
+    container_name: real-time-auction-redis
     ports:
       - "6379:6379"
     volumes:
