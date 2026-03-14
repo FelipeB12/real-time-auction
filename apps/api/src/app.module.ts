@@ -4,6 +4,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { Product } from './products/entities/product.entity';
 import { Bid } from './bids/entities/bid.entity';
+import { ProductsModule } from './products/products.module';
 
 /**
  * @fileoverview The root module of the NestJS application. It bootstraps 
@@ -22,6 +23,7 @@ import { Bid } from './bids/entities/bid.entity';
       entities: [Product, Bid],
       synchronize: true, 
     }),
+    ProductsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
