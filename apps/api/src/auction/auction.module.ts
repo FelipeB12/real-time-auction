@@ -16,6 +16,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuctionService } from './auction.service';
 import { AuctionController } from './auction.controller';
+import { AuctionGateway } from './auction.gateway';
 import { Product } from '../products/entities/product.entity';
 
 @Module({
@@ -30,6 +31,8 @@ import { Product } from '../products/entities/product.entity';
   providers: [
     // Holds the domain logic for computing and returning live auction state
     AuctionService,
+    // Real-time Gateway that pushes updates via WebSockets (Subscribes to Redis Pub/Sub)
+    AuctionGateway,
   ],
   exports: [
     // Exported so future modules (e.g., Bids, WebSocket Gateway) can read auction state
