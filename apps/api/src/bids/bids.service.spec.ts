@@ -19,6 +19,7 @@ import { BidsService } from './bids.service';
 import { Product } from '../products/entities/product.entity';
 import { Bid } from './entities/bid.entity';
 import { Outbox } from '../common/entities/outbox.entity';
+import { AuctionGateway } from '../auction/auction.gateway';
 
 describe('BidsService (atomic locking)', () => {
   let service: BidsService;
@@ -92,6 +93,10 @@ describe('BidsService (atomic locking)', () => {
         { provide: getRepositoryToken(Bid), useValue: {} },
         { provide: getRepositoryToken(Outbox), useValue: {} },
         { provide: DataSource, useValue: buildMockDataSource(affected) },
+        {
+          provide: AuctionGateway,
+          useValue: { emitBidRejected: jest.fn() },
+        },
       ],
     }).compile();
     return module.get<BidsService>(BidsService);

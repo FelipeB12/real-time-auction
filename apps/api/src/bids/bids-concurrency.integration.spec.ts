@@ -29,6 +29,7 @@ import { BidsService } from './bids.service';
 import { Product } from '../products/entities/product.entity';
 import { Bid } from './entities/bid.entity';
 import { Outbox } from '../common/entities/outbox.entity';
+import { AuctionGateway } from '../auction/auction.gateway';
 
 describe('BidsService — Concurrent Bid Integration Tests', () => {
   let service: BidsService;
@@ -98,6 +99,10 @@ describe('BidsService — Concurrent Bid Integration Tests', () => {
           useValue: {
             createQueryRunner: jest.fn(() => buildConcurrentQueryRunner()),
           },
+        },
+        {
+          provide: AuctionGateway,
+          useValue: { emitBidRejected: jest.fn() },
         },
       ],
     }).compile();
