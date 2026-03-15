@@ -35,4 +35,3 @@ import { AuctionModule } from '../auction/auction.module';
   exports: [BidsService],
 })
 export class BidsModule {}
-

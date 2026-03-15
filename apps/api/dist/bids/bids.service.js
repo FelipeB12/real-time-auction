@@ -65,7 +65,9 @@ let BidsService = class BidsService {
                     .set({ rejected_count: () => 'rejected_count + 1' })
                     .where('id = :item_id', { item_id })
                     .execute();
-                const updatedProduct = await queryRunner.manager.findOne(product_entity_1.Product, { where: { id: item_id } });
+                const updatedProduct = await queryRunner.manager.findOne(product_entity_1.Product, {
+                    where: { id: item_id },
+                });
                 const rejectionEvent = {
                     item_id,
                     bidder_id: user_id,
@@ -81,7 +83,9 @@ let BidsService = class BidsService {
                     message: `Bid of $${amount} was rejected. The current price has already moved to $${product.current_price} or higher.`,
                 });
             }
-            const updatedProduct = await queryRunner.manager.findOne(product_entity_1.Product, { where: { id: item_id } });
+            const updatedProduct = await queryRunner.manager.findOne(product_entity_1.Product, {
+                where: { id: item_id },
+            });
             const bid = queryRunner.manager.create(bid_entity_1.Bid, {
                 item_id,
                 user_id,

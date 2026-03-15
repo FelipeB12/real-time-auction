@@ -75,8 +75,6 @@ function App() {
 
         <div className="status-badge">
           <ShieldCheck size={16} color="#3b82f6" />
-          User ID: <span style={{ color: '#3b82f6', fontWeight: 600 }}>{userId}</span>
-          <div className="status-indicator connected" />
           <span style={{ fontSize: '0.75rem', opacity: 0.8 }}>Connected to Sockets</span>
         </div>
       </header>
@@ -132,9 +130,9 @@ function App() {
         )}
       </main>
 
-      <footer style={{ marginTop: '4rem', padding: '2rem 0', borderTop: '1px solid var(--border-color)', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
+      <footer>
         <p>Built with NestJS + React + Redis + PostgreSQL</p>
-        <p style={{ marginTop: '0.5rem', opacity: 0.6 }}>High-Frequency Auction Platform (Bonus B Implementation)</p>
+        <p style={{ marginTop: '0.5rem', opacity: 0.6 }}>High-Frequency Auction Platform (Bonus B and AImplemented)</p>
       </footer>
     </div>
   );

@@ -1,24 +1,24 @@
 /**
- * @fileoverview AuctionItem component — main dashboard for a single auctionable item.
+ * @fileoverview AuctionItem component — The "Control Center" for a single auction item.
  *
  * ARCHITECTURAL ROLE:
- * This is the primary user-facing component. It orchestrates:
- *  - Fetching initial item state via REST (GET /api/auction/:id/state)
- *  - Receiving live bid updates via the `useAuctionSocket` performance-buffer hook
- *  - Allowing the user to place manual bids via REST (POST /api/bids/place-bid)
+ * This component is a high-frequency data orchestrator. It manages:
+ *  1. Initial State: Fetches the authoritative product state from the REST API.
+ *  2. Real-time Stream: Connects to a WebSocket namespace via `useAuctionSocket`.
+ *  3. Performance Buffering: Receives batched updates every 100ms to prevent React render-thrashing.
+ *  4. Optimistic Bidding: Fires REST requests and handles the resulting "Success" or "Stale" signals.
  *
- * ANALYTICS BOARD DESIGN:
- *  - totalBids      : incremented by the exact batch size received each flush.
- *  - bidsPerSecond  : measured as the delta of totalBids over a 1-second window.
- *                     This avoids any artificial ceiling from a capped history array.
- *  - rejectedBids   : collected from both handlePlaceBid and handleQuickBid catch
- *                     blocks, shown in the new "Rejected Bids" panel.
- *  - acceptedBids   : live-updated from WebSocket flush batches (successful bids).
+ * MINIMALISTIC 3-COLUMN DESIGN:
+ * Following professional UI standards, we've removed noisy global counters in favor of
+ * a streamlined, data-dense 3-column architecture:
+ *  - COLUMN 1: "BID COMMAND": Shows the absolute current price, active winner, and input controls.
+ *  - COLUMN 2: "TRANSACTION LOG": A chronological feed of successful price movements.
+ *  - COLUMN 3: "REJECTION FEED": Insights into failed bids, showing real-time competition.
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
-import { Gavel, AlertCircle, ShieldCheck, XCircle } from 'lucide-react';
+import { Gavel, AlertCircle, ShieldCheck, XCircle, TrendingUp, History, Ban } from 'lucide-react';
 import { useAuctionSocket } from '../hooks/useAuctionSocket';
 import type { Product, BidResult, BidEvent, BidRejectedEvent } from '@auction/shared';
 
@@ -27,93 +27,78 @@ interface AuctionItemProps {
   userId: string;
 }
 
-/** A single entry in the rejected-bids feed */
+/** 
+ * Internal representation of a rejected bid attempt.
+ * Extended with unique IDs for React list rendering stability.
+ */
 interface RejectedBid {
-  id: string;        // unique per rejection
+  id: string;
   reason: string;
   amount: number;
   bidder_id: string;
   timestamp: Date;
 }
 
-const API_URL   = 'http://localhost:3000/api';
-
-/** Max entries to keep in the accepted / rejected bid feeds */
-const MAX_FEED_SIZE = 50;
+const API_URL = 'http://localhost:3000/api';
+const MAX_FEED_SIZE = 50; // Keep the feeds shallow for DOM performance
 
 export const AuctionItem: React.FC<AuctionItemProps> = ({ itemId, userId }) => {
-  /* ----------------------------- Core state ----------------------------- */
-  const [product, setProduct]               = useState<Product | null>(null);
-  const [bidAmount, setBidAmount]           = useState<number>(0);
-  const [loading, setLoading]               = useState(true);
-  const [error, setError]                   = useState<string | null>(null);
+  /* -------------------------------------------------------------------------- */
+  /*                                CORE STATE                                  */
+  /* -------------------------------------------------------------------------- */
+  const [product, setProduct] = useState<Product | null>(null);
+  const [bidAmount, setBidAmount] = useState<number>(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [isUpdating, setIsUpdating]         = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
   const [stableConnected, setStableConnected] = useState(false);
 
-  /* ----------------------------- Analytics ------------------------------ */
-  const [acceptedBids, setAcceptedBids]     = useState<BidEvent[]>([]);
-  const [rejectedBids, setRejectedBids]     = useState<RejectedBid[]>([]);
+  /* -------------------------------------------------------------------------- */
+  /*                               FEED MANAGEMENT                              */
+  /* -------------------------------------------------------------------------- */
+  const [acceptedBids, setAcceptedBids] = useState<BidEvent[]>([]);
+  const [rejectedBids, setRejectedBids] = useState<RejectedBid[]>([]);
 
-  /* ---------- Stabilize connection status (avoid rapid flickering) ------- */
-  useEffect(() => {
-    // We defer disconnect state by 1.5s to avoid UI flicker on reconnect.
-  }, []);
+  /* -------------------------------------------------------------------------- */
+  /*                          WEBSOCKET BATCH HANDLERS                          */
+  /* -------------------------------------------------------------------------- */
 
-  /* ---------------------- WebSocket batch handler ----------------------- */
   /**
-   * onUpdate is called by the flush loop with every batch of successful bid events.
-   * We use useCallback so the reference stays stable and doesn't needlessly
-   * recreate the hook's onUpdateRef (though the hook handles this itself).
+   * Processes a batch of successful bids.
+   * Updates core item state and prepends the log feed.
    */
   const handleBidBatch = useCallback((events: BidEvent[]) => {
-    // Take the most recent event as the "current" state.
     const latestEvent = events[events.length - 1];
 
     setProduct((prev) =>
       prev
         ? {
             ...prev,
-            current_price:      latestEvent.new_price,
-            highest_bidder_id:  latestEvent.bidder_id,
-            accepted_count:     latestEvent.accepted_count,
-            rejected_count:     latestEvent.rejected_count,
+            current_price: Number(latestEvent.new_price), // Force Numeric
+            highest_bidder_id: latestEvent.bidder_id,
           }
         : null
     );
 
-    // Prepend batch to accepted bids feed (newest first), capped to MAX_FEED_SIZE.
     setAcceptedBids((prev) =>
       [...events.slice().reverse(), ...prev].slice(0, MAX_FEED_SIZE)
     );
 
-
-    // Flash animation hint
+    // Trigger visual feedback (price flash)
     setIsUpdating(true);
     setTimeout(() => setIsUpdating(false), 600);
   }, []);
 
   /**
-   * handleRejectedBatch is called by the socket hook with every batch of rejected bids
-   * (both from this user and all other users/VUs).
+   * Processes a batch of rejected bids from the network (including VUs).
+   * Populates the Rejection Feed to provide visibility into competition density.
    */
   const handleRejectedBatch = useCallback((events: BidRejectedEvent[]) => {
-    // Update the aggregate counters from the latest event in the batch
-    const latestEvent = events[events.length - 1];
-    setProduct((prev) =>
-      prev
-        ? {
-            ...prev,
-            accepted_count: latestEvent.accepted_count,
-            rejected_count: latestEvent.rejected_count,
-          }
-        : null
-    );
-
     setRejectedBids((prev) => {
       const newItems: RejectedBid[] = events.map((e, i) => ({
         id: `${e.timestamp}-${i}-${Math.random()}`,
-        reason: e.reason === 'STALE_BID' ? 'OUTBID — too slow' : e.reason,
+        reason: e.reason === 'STALE_BID' ? 'OUTBID' : e.reason,
         amount: e.attempted_amount,
         bidder_id: e.bidder_id,
         timestamp: new Date(e.timestamp),
@@ -123,9 +108,14 @@ export const AuctionItem: React.FC<AuctionItemProps> = ({ itemId, userId }) => {
     });
   }, []);
 
+  // Hook into the high-frequency performance buffer
   const { isConnected } = useAuctionSocket(itemId, handleBidBatch, handleRejectedBatch);
 
-  /* --------- Stabilize connection status to prevent flickering ---------- */
+  /**
+   * Connection Stability Logic:
+   * Prevents UI "flicker" by waiting for a short grace period 
+   * before showing a disconnected state.
+   */
   useEffect(() => {
     if (isConnected) {
       setStableConnected(true);
@@ -135,7 +125,10 @@ export const AuctionItem: React.FC<AuctionItemProps> = ({ itemId, userId }) => {
     }
   }, [isConnected]);
 
-  /* ----------------------------- Init fetches --------------------------- */
+  /* -------------------------------------------------------------------------- */
+  /*                            DATA SYNCHRONIZATION                            */
+  /* -------------------------------------------------------------------------- */
+  
   useEffect(() => {
     fetchInitialState();
     fetchBidHistory();
@@ -145,11 +138,14 @@ export const AuctionItem: React.FC<AuctionItemProps> = ({ itemId, userId }) => {
     try {
       setLoading(true);
       const response = await axios.get<Product>(`${API_URL}/auction/${itemId}/state`);
-      setProduct(response.data);
-      setBidAmount(Math.floor(response.data.current_price + 10));
+      setProduct({
+        ...response.data,
+        current_price: Number(response.data.current_price) // Force Numeric
+      });
+      setBidAmount(Math.floor(Number(response.data.current_price) + 10)); // Default increment
       setError(null);
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to connect to auction server');
+      setError(err.response?.data?.message || 'Connection to auction lost');
     } finally {
       setLoading(false);
     }
@@ -157,46 +153,43 @@ export const AuctionItem: React.FC<AuctionItemProps> = ({ itemId, userId }) => {
 
   const fetchBidHistory = async () => {
     try {
-      const response = await axios.get<BidEvent[]>(
-        `${API_URL}/bids/${itemId}/history`
-      );
+      const response = await axios.get<BidEvent[]>(`${API_URL}/bids/${itemId}/history`);
       setAcceptedBids(response.data.slice(0, MAX_FEED_SIZE));
     } catch (err) {
-      console.error('[AuctionItem] Failed to fetch bid history:', err);
+      console.error('[AuctionItem] History fetch failed:', err);
     }
   };
 
-  /* ----------------------------- Bid helpers ---------------------------- */
-  /** Helper to truncate long UUIDs/names to a readable label. */
+  /* -------------------------------------------------------------------------- */
+  /*                             BIDDING OPERATIONS                             */
+  /* -------------------------------------------------------------------------- */
+
   const formatId = (id: string | null | undefined) => {
-    if (!id) return 'N/A';
+    if (!id) return 'None';
+    // Showing full ID for Virtual Users as requested
     if (id.startsWith('vu-user-')) return id;
     return id.length > 12 ? id.substring(0, 10) + '…' : id;
   };
 
-  /**
-   * Record a rejected bid into the live feed (for LOCAL manual attempts).
-   * Note: The socket hook now handles all broadcast rejections (including VUs).
-   */
-  const recordRejection = (reason: string, amount: number) => {
-    setRejectedBids((prev) =>
-      [
-        {
-          id: `${Date.now()}-${Math.random()}`,
-          reason,
-          amount,
-          bidder_id: userId,
-          timestamp: new Date()
-        },
-        ...prev,
-      ].slice(0, MAX_FEED_SIZE)
-    );
+  /** Local rejection helper for manual attempts */
+  const recordLocalRejection = (reason: string, amount: number) => {
+    setRejectedBids((prev) => [
+      {
+        id: `${Date.now()}-${Math.random()}`,
+        reason,
+        amount,
+        bidder_id: userId,
+        timestamp: new Date()
+      },
+      ...prev,
+    ].slice(0, MAX_FEED_SIZE));
   };
 
-  /* ----------------------------- Place bid ------------------------------ */
+  /** Formal bidding via REST */
   const handlePlaceBid = async () => {
-    if (bidAmount <= (product?.current_price || 0)) {
-      setError('Bid must be higher than current price');
+    const currentPrice = Number(product?.current_price || 0);
+    if (Number(bidAmount) <= currentPrice) {
+      setError('Price moved! Increase your bid.');
       return;
     }
     try {
@@ -207,199 +200,177 @@ export const AuctionItem: React.FC<AuctionItemProps> = ({ itemId, userId }) => {
         { headers: { 'Idempotency-Key': `${userId}-${Date.now()}` } }
       );
       if (response.data.success) {
-        setSuccessMessage('Bid placed successfully!');
+        setSuccessMessage('Bid Accepted');
         setTimeout(() => setSuccessMessage(null), 3000);
-        setIsUpdating(true);
-        setTimeout(() => setIsUpdating(false), 800);
       }
     } catch (err: any) {
-      console.error('[AuctionItem] Bid failed:', err.response?.data);
       const code = err.response?.data?.error_code;
-      const msg  = err.response?.data?.message;
+      const msg = err.response?.data?.message;
       if (code === 'STALE_BID') {
-        const reason = 'STALE — price moved too fast';
-        setError(`${reason}. Try bidding at least $500 higher.`);
-        recordRejection(reason, bidAmount);
+        setError('STALE: Someone outbid you!');
+        recordLocalRejection('STALE', bidAmount);
       } else {
-        setError(msg || 'Bid rejected');
-        recordRejection(msg || 'Rejected', bidAmount);
+        setError(msg || 'Rejected');
+        recordLocalRejection(msg || 'Error', bidAmount);
       }
     }
   };
 
-  /* ----------------------------- Quick bid ------------------------------ */
+  /** High-speed incremental bidding */
   const handleQuickBid = (increment: number) => {
     if (!product) return;
-    const aggressiveAmount = product.current_price + increment + (increment > 100 ? 200 : 50);
-    setBidAmount(aggressiveAmount);
+    const amount = Number(product.current_price) + increment; // Fix concatenation bug
+    setBidAmount(amount);
 
-    setTimeout(() => {
-      (async () => {
-        try {
-          setError(null);
-          await axios.post<BidResult>(
-            `${API_URL}/bids/place-bid`,
-            { item_id: itemId, user_id: userId, amount: aggressiveAmount },
-            { headers: { 'Idempotency-Key': `${userId}-${Date.now()}` } }
-          );
-          setSuccessMessage(
-            `Success! You outbid by $${(aggressiveAmount - product.current_price).toLocaleString()}!`
-          );
-          setTimeout(() => setSuccessMessage(null), 3000);
-        } catch (e: any) {
-          const code = e.response?.data?.error_code;
-          const msg  = e.response?.data?.message;
-          if (code === 'STALE_BID') {
-            const reason = 'STALE — bots too fast';
-            setError('STALE: The bots are too fast! Try the +$1,000 button.');
-            recordRejection(reason, aggressiveAmount);
-          } else {
-            setError(msg || 'Quick bid failed');
-            recordRejection(msg || 'Quick bid rejected', aggressiveAmount);
-          }
+    // Immediate execution for better UX
+    (async () => {
+      try {
+        setError(null);
+        await axios.post<BidResult>(
+          `${API_URL}/bids/place-bid`,
+          { item_id: itemId, user_id: userId, amount },
+          { headers: { 'Idempotency-Key': `${userId}-${Date.now()}` } }
+        );
+        setSuccessMessage(`+$${increment.toLocaleString()} Placed!`);
+        setTimeout(() => setSuccessMessage(null), 2000);
+      } catch (e: any) {
+        const code = e.response?.data?.error_code;
+        if (code === 'STALE_BID') {
+          setError('Too slow! Try a bigger leap.');
+          recordLocalRejection('STALE', amount);
         }
-      })();
-    }, 0);
+      }
+    })();
   };
 
-  /* ----------------------------- Render --------------------------------- */
-  if (loading)
-    return (
-      <div className="auction-card shimmer" style={{ minHeight: '300px' }}>
-        <div className="card-content">
-          <div style={{ height: '24px', width: '60%', background: 'rgba(255,255,255,0.1)', borderRadius: '4px', marginBottom: '1rem' }} />
-          <div style={{ height: '16px', width: '90%', background: 'rgba(255,255,255,0.1)', borderRadius: '4px', marginBottom: '2rem' }} />
-          <div style={{ height: '40px', width: '40%', background: 'rgba(255,255,255,0.1)', borderRadius: '4px' }} />
-        </div>
-      </div>
-    );
+  /* -------------------------------------------------------------------------- */
+  /*                                  RENDERING                                 */
+  /* -------------------------------------------------------------------------- */
 
-  if (!product) return <div className="auction-card error">Item not found</div>;
+  if (loading) return <div className="auction-card shimmer" style={{ minHeight: '400px' }} />;
+  if (!product) return <div className="auction-card error">Auction Unavailable</div>;
+
+  const isLeading = product.highest_bidder_id === userId;
 
   return (
-    <div className="auction-dashboard-item">
-      {/* ─── Header ─────────────────────────────────────────────────── */}
-      <header className="dashboard-header">
-        <div className="header-info">
-          <h2 className="item-name">{product.name}</h2>
-          <div className={`status-pill ${stableConnected ? 'live' : 'syncing'}`}>
-            <span className="pulse-dot" />
-            {stableConnected ? 'LIVE FEED' : 'SYNCING'}
+    <div className="professional-auction-dashboard">
+      {/* HEADER: Minimalist Title & Global Status */}
+      <header className="dashboard-header-simple">
+        <div className="title-group">
+          <h2>{product.name}</h2>
+          <div className={`connection-status ${stableConnected ? 'live' : 'sync'}`}>
+            <span className="dot" />
+            {stableConnected ? 'REAL-TIME PROXY ACTIVE' : 'RE-SYNCING...'}
           </div>
         </div>
-        <div className="header-actions">
-          <div className="user-indicator">
-            <span className="user-id">ID: {formatId(userId)}</span>
-            {product.highest_bidder_id === userId && (
-              <span className="leader-badge">YOU ARE LEADING</span>
-            )}
-          </div>
+        <div className="user-context">
+          <span className="user-label">USER_ID</span>
+          <span className="user-value">{formatId(userId)}</span>
         </div>
       </header>
 
-      {/* ─── Stats Grid ─────────────────────────────────────────────── */}
-      <div className="stats-grid single-stat">
-        <div className="stat-card">
-          <span className="stat-label">Current Winner</span>
-          <div className="winner-display-box">
-            <span className="stat-value winner">{formatId(product.highest_bidder_id)}</span>
+      {/* THREE-COLUMN GRID */}
+      <div className="three-column-grid">
+        
+        {/* COLUMN 1: BID COMMANDS */}
+        <section className="column bid-command">
+          <div className="column-header">
+            <TrendingUp size={16} />
+            <h3>BID COMMAND</h3>
           </div>
-        </div>
-      </div>
-
-      {/* ─── Main Panel ─────────────────────────────────────────────── */}
-      <div className="dashboard-main">
-        {/* Left: Price & Bid Controls */}
-        <section className="dashboard-column primary">
-          <div className="price-display-container">
-            <span className="price-label">CURRENT HIGHEST BID</span>
-            <div className={`price-value ${isUpdating ? 'flash' : ''}`}>
-              <span className="price-symbol">$</span>
+          
+          <div className="main-price-card">
+            <span className="label">CURRENT PRICE</span>
+            <div className={`value ${isUpdating ? 'price-active' : ''}`}>
+              <span className="currency">$</span>
               {product.current_price.toLocaleString()}
             </div>
           </div>
 
-          <div className="bid-control-panel">
-            <div className="input-wrapper">
-              <span className="input-prefix">$</span>
+          <div className="winner-card">
+            <span className="label">LEADING BIDDER</span>
+            <div className={`winner-name ${isLeading ? 'is-me' : ''}`}>
+              {formatId(product.highest_bidder_id)}
+              {isLeading && <span className="leader-badge">WINNING</span>}
+            </div>
+          </div>
+
+          <div className="bid-actions">
+            <div className="input-group">
+              <span className="symbol">$</span>
               <input
                 type="number"
-                className="dashboard-input"
                 value={bidAmount}
                 onChange={(e) => setBidAmount(Number(e.target.value))}
-                min={product.current_price + 1}
+                className="minimal-input"
               />
             </div>
-            <button
-              className="dashboard-bid-button"
+            <button 
+              className="place-bid-btn"
               onClick={handlePlaceBid}
-              disabled={product.current_price >= bidAmount}
+              disabled={bidAmount <= product.current_price}
             >
-              <Gavel size={20} />
-              PLACE BID
+              <Gavel size={18} />
+              SEND BID
             </button>
 
-            <div className="quick-bid-row">
-              <button className="quick-bid-btn"          onClick={() => handleQuickBid(100)}  title="Bid Current + $100">+$100</button>
-              <button className="quick-bid-btn"          onClick={() => handleQuickBid(500)}  title="Bid Current + $500">+$500</button>
-              <button className="quick-bid-btn featured" onClick={() => handleQuickBid(1000)} title="Bid Current + $1,000">+$1,000</button>
+            <div className="quick-leap-group">
+              <button onClick={() => handleQuickBid(100)}>+100</button>
+              <button onClick={() => handleQuickBid(200)}>+200</button>
+              <button onClick={() => handleQuickBid(500)} className="leap">+500</button>
             </div>
           </div>
 
-          {error          && <div className="dashboard-alert error">  <AlertCircle size={16} /> {error}</div>}
-          {successMessage && <div className="dashboard-alert success"><ShieldCheck  size={16} /> {successMessage}</div>}
+          {error && <div className="feedback-alert error-alert"><AlertCircle size={14} /> {error}</div>}
+          {successMessage && <div className="feedback-alert success-alert"><ShieldCheck size={14} /> {successMessage}</div>}
         </section>
 
-        {/* Center: Accepted bids feed */}
-        <aside className="dashboard-column secondary">
-          <div className="live-feed-header">
+        {/* COLUMN 2: TRANSACTION LOG */}
+        <section className="column transaction-log">
+          <div className="column-header">
+            <History size={16} />
             <h3>TRANSACTION LOG</h3>
-            <div className="feed-status">LIVE</div>
           </div>
-          <div className="live-feed-list">
+          <div className="feed-container">
             {acceptedBids.length === 0 ? (
-              <div className="feed-empty">Waiting for incoming bid packets…</div>
+              <div className="empty-feed">Listening for packets...</div>
             ) : (
-              acceptedBids.map((bid, index) => (
-                <div key={`${bid.timestamp}-${index}`} className="feed-item">
-                  <div className="feed-item-meta">
-                    <span className="feed-user">{formatId(bid.bidder_id)}</span>
-                    <span className="feed-time">{new Date(bid.timestamp).toLocaleTimeString()}</span>
+              acceptedBids.map((bid, i) => (
+                <div key={`${bid.timestamp}-${i}`} className="log-entry">
+                  <div className="log-meta">
+                    <span className="log-user">{formatId(bid.bidder_id)}</span>
+                    <span className="log-time">{new Date(bid.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
                   </div>
-                  <div className="feed-price-group">
-                    <div className="feed-price">${bid.new_price.toLocaleString()}</div>
-                  </div>
+                  <div className="log-price">${bid.new_price.toLocaleString()}</div>
                 </div>
               ))
             )}
           </div>
-        </aside>
+        </section>
 
-        {/* Right: Rejected bids feed */}
-        <aside className="dashboard-column rejected-panel">
-          <div className="live-feed-header rejected-header">
+        {/* COLUMN 3: REJECTION HISTORY */}
+        <section className="column rejection-log">
+          <div className="column-header">
+            <Ban size={16} />
             <h3>REJECTED BIDS</h3>
-            <XCircle size={16} className="rejected-icon" />
           </div>
-          <div className="live-feed-list">
-             {rejectedBids.length === 0 ? (
-              <div className="feed-empty">No rejected bids yet</div>
+          <div className="feed-container">
+            {rejectedBids.length === 0 ? (
+              <div className="empty-feed">No rejections detected</div>
             ) : (
               rejectedBids.map((r) => (
-                <div key={r.id} className="feed-item rejected-item">
-                  <div className="feed-item-meta">
-                    <span className="feed-user">{formatId(r.bidder_id)}</span>
-                    <span className="feed-user rejected-reason">{r.reason}</span>
-                    <span className="feed-time">{r.timestamp.toLocaleTimeString()}</span>
+                <div key={r.id} className="log-entry rejected">
+                  <div className="log-meta">
+                    <span className="log-user">{formatId(r.bidder_id)}</span>
+                    <span className="log-reason">{r.reason}</span>
                   </div>
-                  <div className="feed-price-group">
-                    <div className="feed-price rejected-amount">${r.amount.toLocaleString()}</div>
-                  </div>
+                  <div className="log-price">${r.amount.toLocaleString()}</div>
                 </div>
               ))
             )}
           </div>
-        </aside>
+        </section>
+
       </div>
     </div>
   );

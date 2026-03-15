@@ -137,7 +137,9 @@ export class BidsService {
           .execute();
 
         // Fetch updated counts for the rejection event
-        const updatedProduct = await queryRunner.manager.findOne(Product, { where: { id: item_id } });
+        const updatedProduct = await queryRunner.manager.findOne(Product, {
+          where: { id: item_id },
+        });
 
         // — Emit bid_rejected directly via WebSocket (no outbox — rejections are transient).
         const rejectionEvent: BidRejectedEvent = {
@@ -158,7 +160,9 @@ export class BidsService {
       }
 
       // Fetch updated counts for the success event
-      const updatedProduct = await queryRunner.manager.findOne(Product, { where: { id: item_id } });
+      const updatedProduct = await queryRunner.manager.findOne(Product, {
+        where: { id: item_id },
+      });
 
       // — Step 4: Insert the immutable bid audit record.
       const bid = queryRunner.manager.create(Bid, {

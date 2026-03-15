@@ -40,6 +40,5 @@ import { Product } from '../products/entities/product.entity';
     // Exported so BidsModule can inject the gateway to emit real-time rejection events.
     AuctionGateway,
   ],
-
 })
 export class AuctionModule {}
